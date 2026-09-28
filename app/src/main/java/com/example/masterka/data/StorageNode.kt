@@ -29,16 +29,17 @@ data class StorageNode(
     val name: String,
     val type: NodeType,
     val photoPath: String? = null,
-
-    // Старые поля — оставляем, используем как "центр" полигона
-    // (нужен для совместимости и для вещей-без-фото)
     val x: Float = 0f,
     val y: Float = 0f,
     val markerSize: Float = 0.05f,
-
-    // НОВОЕ: полигон в JSON — список точек [{x,y},{x,y},...], координаты в долях [0..1]
     val polygonJson: String? = null,
-
     val note: String? = null,
+    val category: String? = null,   // "инструмент", "расходник", "метизы", ...
+
+    // ==== НОВОЕ: учёт количества ====
+    val quantity: Float = 1f,
+    val unit: String = "шт",
+    val minQuantity: Float? = null,
+
     val createdAt: Long = System.currentTimeMillis()
 )

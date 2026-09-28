@@ -116,4 +116,58 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
             _children.value = dao.getChildrenOnce(parent.id)
         }
     }
+
+    fun addItemWithQuantity(
+        name: String,
+        quantity: Float,
+        unit: String,
+        note: String? = null
+    ) {
+        val parent = _currentNode.value ?: return
+        viewModelScope.launch {
+            dao.insert(
+                StorageNode(
+                    parentId = parent.id,
+                    name = name.trim(),
+                    type = NodeType.ITEM,
+                    x = 0f,
+                    y = 0f,
+                    quantity = quantity,
+                    unit = unit.trim().ifBlank { "шт" },
+                    note = note?.trim()?.ifBlank { null }
+                )
+            )
+            _children.value = dao.getChildrenOnce(parent.id)
+        }
+    }
+
+    fun updateItem(
+        node: StorageNode,
+        newName: String,
+        newQty: Float,
+        newUnit: String,
+        newNote: String?,
+        newCategory: String?,
+        newPhotoPath: String?
+    ) {
+        viewModelScope.launch {
+            dao.updateItemFull(
+                id = node.id,
+                name = newName.trim(),
+                qty = newQty,
+                unit = newUnit.trim().ifBlank { "шт" },
+                note = newNote?.trim()?.ifBlank { null },
+                category = newCategory?.trim()?.ifBlank { null },
+                photoPath = newPhotoPath
+            )
+            _children.value = dao.getChildrenOnce(node.parentId ?: return@launch)
+        }
+    }
+
+    fun setNodePhoto(node: StorageNode, path: String) {
+        viewModelScope.launch {
+            dao.update(node.copy(photoPath = path))
+            _currentNode.value = node.copy(photoPath = path)
+        }
+    }
 }

@@ -12,6 +12,8 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -33,6 +35,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -51,6 +54,7 @@ fun NodeScreen(
     nodeId: Long,
     onBack: () -> Unit,
     onChildClick: (StorageNode) -> Unit,
+    onItemClick: (StorageNode) -> Unit,
     vm: NodeViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -132,7 +136,6 @@ fun NodeScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Кнопка "Нарисовать контур" — только dev-mode, только когда есть фото
                 if (developerMode && current.photoPath != null && !drawingMode) {
                     ExtendedFloatingActionButton(
                         onClick = {
@@ -145,7 +148,6 @@ fun NodeScreen(
                         text = { Text("Нарисовать контур") }
                     )
                 }
-                // Кнопка "Добавить вещь" — видна вне режима рисования
                 if (!drawingMode) {
                     ExtendedFloatingActionButton(
                         onClick = { showAddItemDialog = true },
@@ -153,7 +155,6 @@ fun NodeScreen(
                         text = { Text("Вещь") }
                     )
                 }
-                // Кнопка "Выбрать фото" — если фото нет
                 if (current.photoPath == null) {
                     FloatingActionButton(onClick = {
                         pickPhoto.launch(
@@ -171,7 +172,7 @@ fun NodeScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // === Фото занимает ВСЁ пространство и не зависит от панелей ===
+            // === Фото на всё пространство ===
             if (current.photoPath != null) {
                 PhotoWithMarkers(
                     photoPath = current.photoPath!!,
@@ -180,7 +181,15 @@ fun NodeScreen(
                     drawingMode = drawingMode,
                     drawingPoints = drawingPoints.toList(),
                     hiddenMarkerId = editingPolygonId,
-                    onMarkerClick = { marker -> selectedMarker = marker },
+                    onMarkerClick = { marker ->
+                        if (developerMode) {
+                            // В dev-режиме — плашка с [Открыть] [Контур] [Удалить]
+                            selectedMarker = marker
+                        } else {
+                            // В обычном режиме — сразу открываем контейнер
+                            onChildClick(marker)
+                        }
+                    },
                     onDrawingTap = { x, y ->
                         drawingPoints.add(NormalizedPoint(x, y))
                     },
@@ -234,19 +243,20 @@ fun NodeScreen(
                 }
             }
 
-            // === Список вещей (без фото) — overlay внизу ===
-            if (children.isNotEmpty() && current.photoPath == null) {
+            // === Полоска материалов (ITEM) — overlay внизу ===
+            val itemsOnly = children.filter { it.type == NodeType.ITEM }
+            if (itemsOnly.isNotEmpty() && !drawingMode) {
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f))
                         .padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(children, key = { it.id }) { child ->
+                    items(itemsOnly, key = { it.id }) { child ->
                         AssistChip(
-                            onClick = { onChildClick(child) },
+                            onClick = { onItemClick(child) },
                             label = { Text(child.name) }
                         )
                     }
@@ -300,32 +310,24 @@ fun NodeScreen(
         }
     }
 
-    // ==== Плашка выбранного маркера ====
+    // ==== Плашка выбранного маркера (полигона) ====
     val marker = selectedMarker
     if (marker != null && !drawingMode) {
         AlertDialog(
             onDismissRequest = { selectedMarker = null },
             title = { Text(marker.name) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!marker.note.isNullOrBlank()) {
-                        Text(
-                            marker.note!!,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                    Text(
-                        "Тип: ${
-                            when (marker.type) {
-                                NodeType.ZONE -> "Зона"
-                                NodeType.CONTAINER -> "Контейнер"
-                                NodeType.ITEM -> "Вещь"
-                            }
-                        }",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    "Тип: ${
+                        when (marker.type) {
+                            NodeType.ZONE -> "Зона"
+                            NodeType.CONTAINER -> "Контейнер"
+                            NodeType.ITEM -> "Вещь"
+                        }
+                    }",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -335,35 +337,38 @@ fun NodeScreen(
             },
             dismissButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = {
-                        editingPolygonId = marker.id
-                        editingPolygonName = marker.name
-                        drawingPoints.clear()
-                        drawingMode = true
-                        selectedMarker = null
-                    }) { Text("Изменить") }
-
-                    TextButton(onClick = {
-                        vm.deleteChild(marker)
-                        selectedMarker = null
-                    }) { Text("Удалить") }
+                    if (developerMode && marker.polygonJson != null) {
+                        TextButton(onClick = {
+                            editingPolygonId = marker.id
+                            editingPolygonName = marker.name
+                            drawingPoints.clear()
+                            drawingMode = true
+                            selectedMarker = null
+                        }) { Text("Контур") }
+                    }
+                    if (developerMode) {
+                        TextButton(onClick = {
+                            vm.deleteChild(marker)
+                            selectedMarker = null
+                        }) { Text("Удалить") }
+                    }
                 }
             }
         )
     }
 
-    // Диалог вещи
+    // ==== Диалог вещи ====
     if (showAddItemDialog) {
         AddItemDialog(
             onDismiss = { showAddItemDialog = false },
-            onConfirm = { name ->
-                vm.addChild(name, NodeType.ITEM, 0f, 0f, 0.05f)
+            onConfirm = { name, qty, unit, note ->
+                vm.addItemWithQuantity(name, qty, unit, note)
                 showAddItemDialog = false
             }
         )
     }
 
-    // Диалог сохранения/обновления полигона
+    // ==== Диалог сохранения/обновления полигона ====
     if (showSavePolygonDialog) {
         val isEditing = editingPolygonId != null
         var name by remember {
@@ -491,7 +496,7 @@ private fun PhotoWithMarkers(
                 contentScale = ContentScale.Fit
             )
 
-            // === 1) Отрисовка сохранённых полигонов (кроме скрытого при перерисовке) ===
+            // === 1) Отрисовка сохранённых полигонов ===
             if (size.width > 0) {
                 markers.forEach { marker ->
                     if (hiddenMarkerId != null && marker.id == hiddenMarkerId) return@forEach
@@ -657,29 +662,78 @@ private fun markerColor(type: NodeType): Color = when (type) {
 @Composable
 private fun AddItemDialog(
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
+    onConfirm: (name: String, quantity: Float, unit: String, note: String?) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
+    var quantityText by remember { mutableStateOf("1") }
+    var unit by remember { mutableStateOf("шт") }
+    var note by remember { mutableStateOf("") }
+
+    val quantity = quantityText.replace(',', '.').toFloatOrNull()
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Новая вещь") },
         text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Название (Молоток, Отвёртки...)") },
-                singleLine = true
-            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Название *") },
+                    singleLine = true
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = quantityText,
+                        onValueChange = { quantityText = it },
+                        label = { Text("Кол-во") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        isError = quantity == null && quantityText.isNotBlank()
+                    )
+                    OutlinedTextField(
+                        value = unit,
+                        onValueChange = { unit = it },
+                        label = { Text("Ед. изм.") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("шт") }
+                    )
+                }
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("Заметка (необязательно)") },
+                    singleLine = false,
+                    minLines = 2
+                )
+            }
         },
         confirmButton = {
             TextButton(
-                onClick = { if (name.isNotBlank()) onConfirm(name) },
-                enabled = name.isNotBlank()
+                onClick = {
+                    if (name.isNotBlank() && quantity != null) {
+                        onConfirm(
+                            name,
+                            quantity,
+                            unit.ifBlank { "шт" },
+                            note.ifBlank { null }
+                        )
+                    }
+                },
+                enabled = name.isNotBlank() && quantity != null
             ) { Text("Добавить") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Отмена") }
         }
     )
+}
+
+private fun formatQty(q: Float): String {
+    return if (q == q.toInt().toFloat()) q.toInt().toString()
+    else "%.2f".format(q).trimEnd('0').trimEnd('.')
 }
