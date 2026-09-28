@@ -35,6 +35,8 @@ data class StorageNode(
     val polygonJson: String? = null,
     val note: String? = null,
     val category: String? = null,   // "инструмент", "расходник", "метизы", ...
+    val photoPathsJson: String? = null,   // JSON-массив путей ["path1","path2",...]
+    val photoIndex: Int = 0,              // для контейнеров: на каком фото они нарисованы
 
     // ==== НОВОЕ: учёт количества ====
     val quantity: Float = 1f,
@@ -43,3 +45,14 @@ data class StorageNode(
 
     val createdAt: Long = System.currentTimeMillis()
 )
+
+/**
+ * Возвращает список всех фото узла.
+ * Если есть photoPathsJson — использует его.
+ * Иначе — fallback на старый одиночный photoPath.
+ */
+fun StorageNode.allPhotoPaths(): List<String> {
+    val fromJson = PhotoPathsCodec.decode(photoPathsJson)
+    return if (fromJson.isNotEmpty()) fromJson
+    else photoPath?.let { listOf(it) } ?: emptyList()
+}

@@ -63,6 +63,15 @@ interface StorageDao {
     @Query("SELECT DISTINCT category FROM nodes WHERE category IS NOT NULL AND category != '' ORDER BY category COLLATE NOCASE")
     fun getAllCategories(): Flow<List<String>>
 
+    @Query("SELECT * FROM nodes WHERE parentId IS NULL ORDER BY createdAt LIMIT 1")
+    suspend fun getRootNode(): StorageNode?
+
+    @Query("UPDATE nodes SET photoPathsJson = :json WHERE id = :id")
+    suspend fun updatePhotoPaths(id: Long, json: String?)
+
+    @Query("DELETE FROM nodes WHERE parentId = :parentId AND photoIndex = :photoIndex AND type != 'ITEM'")
+    suspend fun deleteChildrenAtPhoto(parentId: Long, photoIndex: Int)
+
 
     // ===== CRUD =====
     @Insert

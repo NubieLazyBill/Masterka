@@ -1,12 +1,15 @@
 package com.example.masterka.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.masterka.data.NodeType
 import com.example.masterka.ui.home.HomeScreen
 import com.example.masterka.ui.item.ItemScreen
 import com.example.masterka.ui.materials.MaterialsScreen
@@ -25,29 +28,29 @@ object Routes {
 fun MasterkaNavGraph() {
     val navController = rememberNavController()
 
+    // Dev-режим сохраняется между переходами, сбрасывается при выходе из приложения
+    var developerMode by rememberSaveable { mutableStateOf(false) }
+
     NavHost(navController = navController, startDestination = Routes.HOME) {
 
         // ==== ГЛАВНЫЙ ЭКРАН ====
         composable(Routes.HOME) {
             HomeScreen(
-                onZoneClick = { zone ->
-                    navController.navigate(Routes.node(zone.id))
-                },
+                developerMode = developerMode,
+                onDeveloperModeChange = { developerMode = it },
                 onMaterialsClick = {
                     navController.navigate(Routes.MATERIALS)
                 },
-                onSearchResultClick = { node ->
-                    val targetId = if (node.type == NodeType.ITEM) {
-                        node.parentId ?: node.id
-                    } else {
-                        node.id
-                    }
-                    navController.navigate(Routes.node(targetId))
+                onChildClick = { node ->
+                    navController.navigate(Routes.node(node.id))
+                },
+                onItemClick = { item ->
+                    navController.navigate(Routes.item(item.id))
                 }
             )
         }
 
-        // ==== ЭКРАН ЗОНЫ/КОНТЕЙНЕРА ====
+        // ==== ЭКРАН УЗЛА (контейнер/зона/шкаф) ====
         composable(
             route = Routes.NODE,
             arguments = listOf(navArgument("nodeId") { type = NavType.LongType })
@@ -55,6 +58,8 @@ fun MasterkaNavGraph() {
             val nodeId = backStack.arguments?.getLong("nodeId") ?: return@composable
             NodeScreen(
                 nodeId = nodeId,
+                developerMode = developerMode,
+                onDeveloperModeChange = { developerMode = it },
                 onBack = { navController.popBackStack() },
                 onChildClick = { child ->
                     navController.navigate(Routes.node(child.id))

@@ -5,66 +5,109 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.masterka.MasterkaApp
 import com.example.masterka.data.NodeType
+import com.example.masterka.data.NormalizedPoint
+import com.example.masterka.data.PhotoPathsCodec
+import com.example.masterka.data.PolygonCodec
 import com.example.masterka.data.StorageNode
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.stateIn
+import com.example.masterka.data.allPhotoPaths
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-
-data class SearchResult(
-    val node: StorageNode,
-    val path: String
-)
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     private val dao = (app as MasterkaApp).dao
 
-    val zones = dao.getRoots()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _rootNode = MutableStateFlow<StorageNode?>(null)
+    val rootNode = _rootNode.asStateFlow()
 
-    fun addZone(name: String, photoPath: String? = null) {
+    private val _children = MutableStateFlow<List<StorageNode>>(emptyList())
+    val children = _children.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            var root = dao.getRootNode()
+            if (root == null) {
+                // Создаём корень, если его нет
+                val id = dao.insert(
+                    StorageNode(
+                        parentId = null,
+                        name = "Мастерская",
+                        type = NodeType.ZONE
+                    )
+                )
+                root = dao.getById(id)
+            }
+            _rootNode.value = root
+            if (root != null) {
+                _children.value = dao.getChildrenOnce(root.id)
+            }
+        }
+    }
+
+    fun addPhoto(path: String) {
+        val node = _rootNode.value ?: return
+        viewModelScope.launch {
+            val current = node.allPhotoPaths().toMutableList()
+            current.add(path)
+            val updated = node.copy(photoPathsJson = PhotoPathsCodec.encode(current))
+            dao.update(updated)
+            _rootNode.value = updated
+        }
+    }
+
+    fun removePhotoAt(index: Int) {
+        val node = _rootNode.value ?: return
+        viewModelScope.launch {
+            val current = node.allPhotoPaths().toMutableList()
+            if (index !in current.indices) return@launch
+            current.removeAt(index)
+            // Удаляем всех детей, привязанных к этому фото
+            dao.deleteChildrenAtPhoto(node.id, index)
+            val updated = node.copy(photoPathsJson = PhotoPathsCodec.encode(current))
+            dao.update(updated)
+            _rootNode.value = updated
+            _children.value = dao.getChildrenOnce(node.id)
+        }
+    }
+
+    fun addContainerAtPhoto(
+        name: String,
+        points: List<NormalizedPoint>,
+        photoIndex: Int
+    ) {
+        val parent = _rootNode.value ?: return
+        val cx = points.map { it.x }.average().toFloat()
+        val cy = points.map { it.y }.average().toFloat()
         viewModelScope.launch {
             dao.insert(
                 StorageNode(
-                    parentId = null,
+                    parentId = parent.id,
                     name = name.trim(),
-                    type = NodeType.ZONE,
-                    photoPath = photoPath
+                    type = NodeType.CONTAINER,
+                    x = cx,
+                    y = cy,
+                    polygonJson = PolygonCodec.encode(points),
+                    photoIndex = photoIndex
                 )
             )
+            _children.value = dao.getChildrenOnce(parent.id)
         }
     }
 
-    fun deleteZone(node: StorageNode) {
+    fun updatePolygon(nodeId: Long, points: List<NormalizedPoint>) {
+        val parent = _rootNode.value ?: return
+        viewModelScope.launch {
+            dao.updatePolygon(nodeId, PolygonCodec.encode(points))
+            _children.value = dao.getChildrenOnce(parent.id)
+        }
+    }
+
+    fun deleteNode(node: StorageNode) {
+        val parent = _rootNode.value ?: return
         viewModelScope.launch {
             dao.delete(node)
+            _children.value = dao.getChildrenOnce(parent.id)
         }
-    }
-
-    /**
-     * Поиск по всем узлам (зоны, контейнеры, вещи).
-     * Возвращает список с путём до каждого узла.
-     */
-    suspend fun searchAll(query: String): List<SearchResult> {
-        val q = query.trim()
-        if (q.isBlank()) return emptyList()
-
-        val found = dao.search(q)
-        val results = found.map { node ->
-            SearchResult(node = node, path = buildPath(node))
-        }
-        return results.sortedByDescending {
-            it.node.name.lowercase().startsWith(q.lowercase())
-        }
-    }
-
-    private suspend fun buildPath(node: StorageNode): String {
-        val parts = mutableListOf<String>()
-        var current: StorageNode? = node
-        while (current != null) {
-            parts.add(0, current.name)
-            current = current.parentId?.let { dao.getById(it) }
-        }
-        return parts.joinToString(" → ")
     }
 }

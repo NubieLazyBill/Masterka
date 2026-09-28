@@ -11,6 +11,8 @@ import com.example.masterka.data.StorageNode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.example.masterka.data.PhotoPathsCodec
+import com.example.masterka.data.allPhotoPaths
 
 class NodeViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -34,12 +36,53 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setPhoto(path: String) {
+    fun addPhoto(path: String) {
         val node = _currentNode.value ?: return
         viewModelScope.launch {
-            val updated = node.copy(photoPath = path)
+            val current = node.allPhotoPaths().toMutableList()
+            current.add(path)
+            val updated = node.copy(photoPathsJson = PhotoPathsCodec.encode(current))
             dao.update(updated)
             _currentNode.value = updated
+        }
+    }
+
+    fun removePhotoAt(index: Int) {
+        val node = _currentNode.value ?: return
+        viewModelScope.launch {
+            val current = node.allPhotoPaths().toMutableList()
+            if (index !in current.indices) return@launch
+            current.removeAt(index)
+            // Удаляем всех детей, привязанных к этому фото (кроме ITEM — они не привязаны)
+            dao.deleteChildrenAtPhoto(node.id, index)
+            val updated = node.copy(photoPathsJson = PhotoPathsCodec.encode(current))
+            dao.update(updated)
+            _currentNode.value = updated
+            _children.value = dao.getChildrenOnce(node.id)
+        }
+    }
+
+    fun addContainerAtPhoto(
+        name: String,
+        points: List<NormalizedPoint>,
+        photoIndex: Int
+    ) {
+        val parent = _currentNode.value ?: return
+        val cx = points.map { it.x }.average().toFloat()
+        val cy = points.map { it.y }.average().toFloat()
+        viewModelScope.launch {
+            dao.insert(
+                StorageNode(
+                    parentId = parent.id,
+                    name = name.trim(),
+                    type = NodeType.CONTAINER,
+                    x = cx,
+                    y = cy,
+                    polygonJson = PolygonCodec.encode(points),
+                    photoIndex = photoIndex
+                )
+            )
+            _children.value = dao.getChildrenOnce(parent.id)
         }
     }
 
