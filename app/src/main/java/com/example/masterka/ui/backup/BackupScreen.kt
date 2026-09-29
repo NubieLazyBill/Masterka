@@ -43,9 +43,15 @@ fun BackupScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(state) {
         when (val s = state) {
-            is BackupState.Success -> {
+            is BackupState.ExportSuccess -> {
+                // Просто показать тост, приложение НЕ закрывать
+                snackbarHostState.showSnackbar(s.message)
+                vm.resetState()
+            }
+            is BackupState.ImportSuccess -> {
+                // Показать тост и перезапустить
                 snackbarHostState.showSnackbar(
-                    message = "Данные восстановлены. Приложение сейчас закроется — откройте его заново.",
+                    message = "Данные восстановлены. Приложение закроется — откройте его заново.",
                     duration = SnackbarDuration.Long
                 )
                 kotlinx.coroutines.delay(2500)

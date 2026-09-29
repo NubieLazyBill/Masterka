@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,10 +32,14 @@ import coil.compose.AsyncImage
 import com.example.masterka.ui.common.PhotoSourceDialog
 import com.example.masterka.ui.common.copyPhotoToInternal
 import com.example.masterka.ui.common.createTempCameraFile
+import com.example.masterka.ui.common.formatDate
 import com.example.masterka.ui.common.formatQty
+import com.example.masterka.ui.common.formatRelativeDate
 import com.example.masterka.ui.common.getUriForFile
-import java.io.File
 import com.example.masterka.ui.common.hasCameraPermission
+import com.example.masterka.ui.common.isOverdue
+import com.example.masterka.ui.common.oneMonthFromNow
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,6 +67,9 @@ fun ItemScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var fullScreenPhoto by remember { mutableStateOf(false) }
 
+    // ==== Аренда ====
+    var showLendDialog by remember { mutableStateOf(false) }
+
     LaunchedEffect(item, editMode) {
         if (editMode && item != null) {
             editName = item!!.name
@@ -74,7 +82,6 @@ fun ItemScreen(
 
     var showPhotoSource by remember { mutableStateOf(false) }
 
-    // Галерея
     val pickGalleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
@@ -84,7 +91,6 @@ fun ItemScreen(
         }
     }
 
-    // Камера
     var cameraFile by remember { mutableStateOf<File?>(null) }
     val takePictureLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
@@ -96,7 +102,6 @@ fun ItemScreen(
         cameraFile = null
     }
 
-    // Launcher разрешения
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -154,6 +159,11 @@ fun ItemScreen(
                 },
                 actions = {
                     if (!editMode) {
+                        if (current.lentTo == null) {
+                            IconButton(onClick = { showLendDialog = true }) {
+                                Icon(Icons.Default.Send, contentDescription = "Отдать")
+                            }
+                        }
                         IconButton(onClick = { editMode = true }) {
                             Icon(Icons.Default.Edit, contentDescription = "Редактировать")
                         }
@@ -236,6 +246,16 @@ fun ItemScreen(
                     Spacer(Modifier.width(6.dp))
                     Text(if (current.photoPath == null) "Добавить фото" else "Сменить фото")
                 }
+            }
+
+            // ==== Блок «Отдано» (в просмотре) ====
+            if (!editMode && current.lentTo != null) {
+                LendCard(
+                    lentTo = current.lentTo!!,
+                    lentAt = current.lentAt,
+                    returnBy = current.returnBy,
+                    onReturnClick = { vm.returnItem() }
+                )
             }
 
             // ==== Название ====
@@ -361,20 +381,42 @@ fun ItemScreen(
 
             // ==== Заметка ====
             if (editMode) {
-                OutlinedTextField(
-                    value = editNote,
-                    onValueChange = { editNote = it },
-                    label = { Text("Заметка") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    OutlinedTextField(
+                        value = editNote,
+                        onValueChange = { editNote = it },
+                        label = { Text("Заметка") },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (current.noteUpdatedAt != null) {
+                        Text(
+                            "Изменено: ${formatRelativeDate(current.noteUpdatedAt)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             } else if (!current.note.isNullOrBlank()) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        "Заметка",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Заметка",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (current.noteUpdatedAt != null) {
+                            Text(
+                                formatRelativeDate(current.noteUpdatedAt),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     Text(
                         current.note!!,
                         style = MaterialTheme.typography.bodyMedium
@@ -457,6 +499,18 @@ fun ItemScreen(
             }
         )
     }
+
+    // ==== Диалог «Отдать» ====
+    if (showLendDialog) {
+        LendDialog(
+            itemName = current.name,
+            onDismiss = { showLendDialog = false },
+            onConfirm = { lentTo, returnBy ->
+                vm.lendItem(lentTo, returnBy)
+                showLendDialog = false
+            }
+        )
+    }
 }
 
 @Composable
@@ -473,6 +527,158 @@ private fun InfoRow(label: String, value: String) {
             fontWeight = FontWeight.Medium
         )
     }
+}
+
+@Composable
+private fun LendCard(
+    lentTo: String,
+    lentAt: Long?,
+    returnBy: Long?,
+    onReturnClick: () -> Unit
+) {
+    val overdue = isOverdue(returnBy)
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (overdue)
+                MaterialTheme.colorScheme.errorContainer
+            else
+                MaterialTheme.colorScheme.tertiaryContainer
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Send,
+                    contentDescription = null,
+                    tint = if (overdue)
+                        MaterialTheme.colorScheme.onErrorContainer
+                    else
+                        MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (overdue) "⚠️ Пора вернуть" else "Отдано",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (overdue)
+                        MaterialTheme.colorScheme.onErrorContainer
+                    else
+                        MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
+
+            Text(
+                "Кому: $lentTo",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (overdue)
+                    MaterialTheme.colorScheme.onErrorContainer
+                else
+                    MaterialTheme.colorScheme.onTertiaryContainer
+            )
+
+            if (lentAt != null) {
+                Text(
+                    "Отдано: ${formatDate(lentAt)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (overdue)
+                        MaterialTheme.colorScheme.onErrorContainer
+                    else
+                        MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
+
+            if (returnBy != null) {
+                Text(
+                    "Вернуть до: ${formatDate(returnBy)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (overdue)
+                        MaterialTheme.colorScheme.onErrorContainer
+                    else
+                        MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
+
+            Button(
+                onClick = onReturnClick,
+                modifier = Modifier.fillMaxWidth(),
+                colors = if (overdue)
+                    ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                else
+                    ButtonDefaults.buttonColors()
+            ) {
+                Text("Вернули")
+            }
+        }
+    }
+}
+
+@Composable
+private fun LendDialog(
+    itemName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (lentTo: String, returnBy: Long?) -> Unit
+) {
+    var lentTo by remember { mutableStateOf("") }
+    var withDeadline by remember { mutableStateOf(true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Отдать «$itemName»") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = lentTo,
+                    onValueChange = { lentTo = it },
+                    label = { Text("Кому *") },
+                    placeholder = { Text("Имя, сосед, брат...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Checkbox(
+                        checked = withDeadline,
+                        onCheckedChange = { withDeadline = it }
+                    )
+                    Text(
+                        "Срок возврата — через месяц",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
+                Text(
+                    "Можно вернуть в любой момент через кнопку «Вернули».",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val deadline = if (withDeadline) oneMonthFromNow() else null
+                    onConfirm(lentTo.trim(), deadline)
+                },
+                enabled = lentTo.isNotBlank()
+            ) { Text("Отдать") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        }
+    )
 }
 
 @Composable

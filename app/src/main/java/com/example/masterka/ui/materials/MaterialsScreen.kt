@@ -29,7 +29,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.masterka.data.StorageNode
+import com.example.masterka.ui.common.IconRegistry
 import com.example.masterka.ui.common.formatQty
+import com.example.masterka.ui.common.isOverdue
 import java.io.File
 
 enum class MaterialsViewMode {
@@ -276,7 +278,13 @@ private fun MaterialsGroupedContent(
     ) {
         groups.forEach { (category, itemsInCategory) ->
             item(key = "header_$category") {
-                CategoryHeader(category = category, count = itemsInCategory.size)
+                // Иконка категории — из первой вещи в группе
+                val iconName = itemsInCategory.firstOrNull()?.categoryIcon
+                CategoryHeader(
+                    category = category,
+                    count = itemsInCategory.size,
+                    iconName = iconName
+                )
             }
             items(
                 itemsInCategory.sortedBy { it.item.name.lowercase() },
@@ -293,7 +301,11 @@ private fun MaterialsGroupedContent(
 }
 
 @Composable
-private fun CategoryHeader(category: String, count: Int) {
+private fun CategoryHeader(
+    category: String,
+    count: Int,
+    iconName: String?
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier.fillMaxWidth()
@@ -304,6 +316,17 @@ private fun CategoryHeader(category: String, count: Int) {
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // ==== Иконка категории ====
+            if (iconName != null) {
+                Icon(
+                    IconRegistry.get(iconName),
+                    contentDescription = null,
+                    tint = IconRegistry.getColor(iconName),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+
             Text(
                 category.uppercase(),
                 style = MaterialTheme.typography.labelLarge,
@@ -391,6 +414,30 @@ private fun MaterialRowItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        // Бейдж «Отдано»
+        if (item.lentTo != null) {
+            val overdue = isOverdue(item.returnBy)
+            Surface(
+                color = if (overdue)
+                    MaterialTheme.colorScheme.errorContainer
+                else
+                    MaterialTheme.colorScheme.tertiaryContainer,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                Text(
+                    if (overdue) "⚠️ Пора вернуть: ${item.lentTo}"
+                    else "📤 Отдано: ${item.lentTo}",
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (overdue)
+                        MaterialTheme.colorScheme.onErrorContainer
+                    else
+                        MaterialTheme.colorScheme.onTertiaryContainer
                 )
             }
         }

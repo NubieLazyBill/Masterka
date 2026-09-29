@@ -59,6 +59,10 @@ import com.example.masterka.data.StorageNode
 import com.example.masterka.data.allPhotoPaths
 import java.io.File
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.CloudUpload
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,10 +71,12 @@ fun NodeContent(
     children: List<StorageNode>,
     developerMode: Boolean,
     allCategories: List<String> = emptyList(),
+    onCategoriesClick: () -> Unit = {},
     onThemeChange: (AppTheme) -> Unit = {},
     currentTheme: AppTheme = AppTheme.WORKSHOP,
     onDeveloperModeChange: (Boolean) -> Unit,
     onBackupClick: () -> Unit = {},
+    categoriesMap: Map<String, String> = emptyMap(),
     onAddPhoto: (String) -> Unit,
     onRemovePhoto: (Int) -> Unit,
     onAddContainerAtPhoto: (String, List<NormalizedPoint>, Int) -> Unit,
@@ -174,6 +180,30 @@ fun NodeContent(
     var showMaterialsSheet by remember { mutableStateOf(false) }
     var sheetContextItem by remember { mutableStateOf<StorageNode?>(null) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showDevMenu by remember { mutableStateOf(false) }
+
+    LaunchedEffect(developerMode) {
+        if (!developerMode) {
+            selectedMarker = null
+            showShapePickerDialog = false
+            editingPolygonId = null
+            editingPolygonName = null
+            drawingMode = false
+            drawingPoints.clear()
+        }
+    }
+
+    LaunchedEffect(node.id) {
+        selectedMarker = null
+        showShapePickerDialog = false
+        editingPolygonId = null
+        editingPolygonName = null
+        drawingMode = false
+        drawingPoints.clear()
+        showDevMenu = false
+        showMaterialsSheet = false
+        sheetContextItem = null
+    }
 
     Box(Modifier.fillMaxSize()) {
         if (photos.isNotEmpty()) {
@@ -205,9 +235,15 @@ fun NodeContent(
                     },
                     hiddenMarkerId = editingPolygonId,
                     onMarkerClick = { marker ->
-                        if (developerMode) selectedMarker = marker else onChildClick(marker)
+                        if (developerMode) {
+                            selectedMarker = marker
+                        } else {
+                            onChildClick(marker)
+                        }
                     },
-                    onTapEmpty = { selectedMarker = null },
+                    onTapEmpty = {
+                        // Ничего не делаем — плашка закроется через onDismissRequest
+                    },
                     onZoomChanged = { zoom ->
                         if (currentPage == page) currentZoom = zoom
                     },
@@ -265,32 +301,93 @@ fun NodeContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showMaterialsButton) {
-                FilledTonalButton(onClick = onMaterialsClick) { Text("Моё добро") }
+                FilledTonalButton(onClick = onMaterialsClick) {
+                    Text("Моё добро")
+                }
             } else {
                 Spacer(Modifier.width(0.dp))
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Меню с действиями разработчика
                 if (developerMode) {
-                    IconButton(onClick = { showMainPhotoSource = true }) {
-                        Icon(Icons.Default.Image, contentDescription = "Добавить фото")
-                    }
-                    if (photos.size > 1) {
-                        IconButton(onClick = { showDeletePhotoConfirm = true }) {
+                    Box {
+                        IconButton(onClick = { showDevMenu = true }) {
                             Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Удалить фото",
-                                tint = MaterialTheme.colorScheme.error
+                                Icons.Default.MoreVert,
+                                contentDescription = "Ещё"
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showDevMenu,
+                            onDismissRequest = { showDevMenu = false }
+                        ) {
+                            // Добавить фото
+                            DropdownMenuItem(
+                                text = { Text("Добавить фото") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Image, contentDescription = null)
+                                },
+                                onClick = {
+                                    showDevMenu = false
+                                    showMainPhotoSource = true
+                                }
+                            )
+                            // Удалить фото — если >1
+                            if (photos.size > 1) {
+                                DropdownMenuItem(
+                                    text = { Text("Удалить фото") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    },
+                                    onClick = {
+                                        showDevMenu = false
+                                        showDeletePhotoConfirm = true
+                                    }
+                                )
+                            }
+                            // Тема
+                            DropdownMenuItem(
+                                text = { Text("Тема") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Palette, contentDescription = null)
+                                },
+                                onClick = {
+                                    showDevMenu = false
+                                    showThemeDialog = true
+                                }
+                            )
+                            // Категории
+                            DropdownMenuItem(
+                                text = { Text("Категории") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Category, contentDescription = null)
+                                },
+                                onClick = {
+                                    showDevMenu = false
+                                    onCategoriesClick()
+                                }
+                            )
+                            // Бэкап
+                            DropdownMenuItem(
+                                text = { Text("Резервная копия") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.CloudUpload, contentDescription = null)
+                                },
+                                onClick = {
+                                    showDevMenu = false
+                                    onBackupClick()
+                                }
                             )
                         }
                     }
-                    IconButton(onClick = { showThemeDialog = true }) {
-                        Icon(Icons.Default.Palette, contentDescription = "Тема")
-                    }
-                    IconButton(onClick = onBackupClick) {
-                        Icon(Icons.Default.CloudUpload, contentDescription = "Бэкап")
-                    }
                 }
+
+                // Тумблер Dev — всегда виден
                 FilterChip(
                     selected = developerMode,
                     onClick = { onDeveloperModeChange(!developerMode) },
@@ -481,7 +578,7 @@ fun NodeContent(
 
     // ==== Плашка маркера ====
     val marker = selectedMarker
-    if (marker != null && !drawingMode && developerMode) {
+    if (marker != null && !drawingMode && developerMode && !showShapePickerDialog) {
         AlertDialog(
             onDismissRequest = { selectedMarker = null },
             title = { Text(marker.name) },
@@ -630,11 +727,14 @@ fun NodeContent(
         ) {
             MaterialsSheetContent(
                 items = itemsOnly,
+                categoriesMap = categoriesMap,   // ← НОВОЕ
                 onItemClick = { item ->
                     showMaterialsSheet = false
                     onItemClick(item)
                 },
-                onItemLongClick = { item -> sheetContextItem = item },
+                onItemLongClick = { item ->
+                    sheetContextItem = item
+                },
                 onAddClick = {
                     showMaterialsSheet = false
                     showAddItemDialog = true

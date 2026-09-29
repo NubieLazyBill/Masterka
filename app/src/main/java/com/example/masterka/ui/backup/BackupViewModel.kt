@@ -12,7 +12,8 @@ import kotlinx.coroutines.launch
 sealed class BackupState {
     data object Idle : BackupState()
     data object Working : BackupState()
-    data class Success(val message: String) : BackupState()
+    data class ExportSuccess(val message: String) : BackupState()   // ← для экспорта
+    data class ImportSuccess(val message: String) : BackupState()   // ← для импорта
     data class Error(val message: String) : BackupState()
 }
 
@@ -26,7 +27,7 @@ class BackupViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = BackupState.Working
             val result = BackupManager.export(getApplication(), uri)
             _state.value = result.fold(
-                onSuccess = { BackupState.Success("Бэкап сохранён") },
+                onSuccess = { BackupState.ExportSuccess("Бэкап сохранён") },   // ← ExportSuccess
                 onFailure = { BackupState.Error("Ошибка экспорта: ${it.message}") }
             )
         }
@@ -37,7 +38,7 @@ class BackupViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = BackupState.Working
             val result = BackupManager.import(getApplication(), uri)
             _state.value = result.fold(
-                onSuccess = { BackupState.Success("Данные восстановлены") },
+                onSuccess = { BackupState.ImportSuccess("Данные восстановлены") },   // ← ImportSuccess
                 onFailure = { BackupState.Error("Ошибка импорта: ${it.message}") }
             )
         }

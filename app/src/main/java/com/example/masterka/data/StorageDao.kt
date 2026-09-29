@@ -72,6 +72,32 @@ interface StorageDao {
     @Query("DELETE FROM nodes WHERE parentId = :parentId AND photoIndex = :photoIndex AND type != 'ITEM'")
     suspend fun deleteChildrenAtPhoto(parentId: Long, photoIndex: Int)
 
+    @Query("""
+    UPDATE nodes 
+    SET lentTo = :lentTo, lentAt = :lentAt, returnBy = :returnBy
+    WHERE id = :id
+""")
+    suspend fun lendItem(
+        id: Long,
+        lentTo: String,
+        lentAt: Long,
+        returnBy: Long?
+    )
+
+    @Query("""
+    UPDATE nodes 
+    SET lentTo = NULL, lentAt = NULL, returnBy = NULL
+    WHERE id = :id
+""")
+    suspend fun returnItem(id: Long)
+
+    @Query("""
+    UPDATE nodes 
+    SET note = :note, noteUpdatedAt = :updatedAt
+    WHERE id = :id
+""")
+    suspend fun updateNoteWithTimestamp(id: Long, note: String?, updatedAt: Long)
+
 
     // ===== CRUD =====
     @Insert

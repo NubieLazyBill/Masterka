@@ -34,14 +34,20 @@ data class StorageNode(
     val markerSize: Float = 0.05f,
     val polygonJson: String? = null,
     val note: String? = null,
-    val category: String? = null,   // "инструмент", "расходник", "метизы", ...
-    val photoPathsJson: String? = null,   // JSON-массив путей ["path1","path2",...]
-    val photoIndex: Int = 0,              // для контейнеров: на каком фото они нарисованы
-
-    // ==== НОВОЕ: учёт количества ====
+    val category: String? = null,
+    val photoPathsJson: String? = null,
+    val photoIndex: Int = 0,
     val quantity: Float = 1f,
     val unit: String = "шт",
     val minQuantity: Float? = null,
+
+    // ==== Аренда/одолжение ====
+    val lentTo: String? = null,
+    val lentAt: Long? = null,
+    val returnBy: Long? = null,
+
+    // ==== Заметка: когда менялась ====
+    val noteUpdatedAt: Long? = null,
 
     val createdAt: Long = System.currentTimeMillis()
 )

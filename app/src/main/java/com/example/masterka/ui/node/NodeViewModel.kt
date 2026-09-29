@@ -14,7 +14,9 @@ import kotlinx.coroutines.launch
 import com.example.masterka.data.PhotoPathsCodec
 import com.example.masterka.data.allPhotoPaths
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 
 class NodeViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -31,6 +33,12 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
 
     val allCategories = dao.getAllCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val categoryDao = (app as MasterkaApp).categoryDao
+
+    val categoriesMap: StateFlow<Map<String, String>> = categoryDao.getAllCategories()
+        .map { list -> list.associate { it.name to it.iconName } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     fun loadNode(nodeId: Long) {
         viewModelScope.launch {
@@ -246,4 +254,5 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
             _children.value = dao.getChildrenOnce(parent.id)
         }
     }
+
 }

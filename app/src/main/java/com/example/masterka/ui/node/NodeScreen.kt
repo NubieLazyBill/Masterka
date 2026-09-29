@@ -42,6 +42,7 @@ fun NodeScreen(
     val children by vm.children.collectAsState()
     val breadcrumbs by vm.breadcrumbs.collectAsState()
     val allCategories by vm.allCategories.collectAsState()
+    val categoriesMap by vm.categoriesMap.collectAsState()   // ← НОВОЕ
 
     val current = node ?: return
 
@@ -78,6 +79,7 @@ fun NodeScreen(
                 children = children,
                 developerMode = developerMode,
                 allCategories = allCategories,
+                categoriesMap = categoriesMap,   // ← НОВОЕ
                 currentTheme = currentTheme,
                 onThemeChange = onThemeChange,
                 onDeveloperModeChange = onDeveloperModeChange,

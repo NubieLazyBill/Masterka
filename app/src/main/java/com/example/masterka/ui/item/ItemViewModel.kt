@@ -6,10 +6,10 @@ import androidx.lifecycle.viewModelScope
 import com.example.masterka.MasterkaApp
 import com.example.masterka.data.StorageNode
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 class ItemViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -41,15 +41,29 @@ class ItemViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         val current = _item.value ?: return
         viewModelScope.launch {
+            val oldNote = current.note ?: ""
+            val newNote = note.trim()
+            val noteChanged = oldNote != newNote
+
             dao.updateItemFull(
                 id = current.id,
                 name = name.trim().ifBlank { current.name },
                 qty = qty,
                 unit = unit.trim().ifBlank { "шт" },
-                note = note.trim().ifBlank { null },
+                note = newNote.ifBlank { null },
                 category = category.trim().ifBlank { null },
                 photoPath = current.photoPath
             )
+
+            // Если заметка изменилась — обновляем timestamp
+            if (noteChanged) {
+                dao.updateNoteWithTimestamp(
+                    id = current.id,
+                    note = newNote.ifBlank { null },
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+
             _item.value = dao.getById(current.id)
         }
     }
@@ -70,6 +84,37 @@ class ItemViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun deleteItem(onDone: () -> Unit) {
+        val current = _item.value ?: return
+        viewModelScope.launch {
+            dao.delete(current)
+            onDone()
+        }
+    }
+
+    // ==== Аренда/одолжение ====
+
+    fun lendItem(lentTo: String, returnBy: Long?) {
+        val current = _item.value ?: return
+        viewModelScope.launch {
+            dao.lendItem(
+                id = current.id,
+                lentTo = lentTo.trim(),
+                lentAt = System.currentTimeMillis(),
+                returnBy = returnBy
+            )
+            _item.value = dao.getById(current.id)
+        }
+    }
+
+    fun returnItem() {
+        val current = _item.value ?: return
+        viewModelScope.launch {
+            dao.returnItem(current.id)
+            _item.value = dao.getById(current.id)
+        }
+    }
+
     private suspend fun buildPath(node: StorageNode): String {
         val parts = mutableListOf<String>()
         var current: StorageNode? = node.parentId?.let { dao.getById(it) }
@@ -78,13 +123,5 @@ class ItemViewModel(app: Application) : AndroidViewModel(app) {
             current = current.parentId?.let { dao.getById(it) }
         }
         return parts.joinToString(" → ")
-    }
-
-    fun deleteItem(onDone: () -> Unit) {
-        val current = _item.value ?: return
-        viewModelScope.launch {
-            dao.delete(current)
-            onDone()
-        }
     }
 }

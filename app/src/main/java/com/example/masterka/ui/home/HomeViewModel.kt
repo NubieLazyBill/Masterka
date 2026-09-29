@@ -12,13 +12,17 @@ import com.example.masterka.data.StorageNode
 import com.example.masterka.data.allPhotoPaths
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     private val dao = (app as MasterkaApp).dao
+    private val categoryDao = (app as MasterkaApp).categoryDao
 
     private val _rootNode = MutableStateFlow<StorageNode?>(null)
     val rootNode = _rootNode.asStateFlow()
@@ -28,6 +32,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     val allCategories = dao.getAllCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val categoriesMap: StateFlow<Map<String, String>> = categoryDao.getAllCategories()
+        .map { list -> list.associate { it.name to it.iconName } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     init {
         viewModelScope.launch {

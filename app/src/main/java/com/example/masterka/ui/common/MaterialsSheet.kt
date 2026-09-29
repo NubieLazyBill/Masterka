@@ -5,6 +5,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -15,11 +16,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.masterka.data.StorageNode
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.example.masterka.data.StorageNode
 
 enum class MaterialsViewMode {
     LIST,
@@ -33,7 +35,8 @@ fun MaterialsSheetContent(
     onItemClick: (StorageNode) -> Unit,
     onItemLongClick: (StorageNode) -> Unit,
     onAddClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    categoriesMap: Map<String, String> = emptyMap(),
 ) {
     var viewMode by remember { mutableStateOf(MaterialsViewMode.GROUPS) }
 
@@ -51,7 +54,6 @@ fun MaterialsSheetContent(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f)
             )
-            // Переключатель вида
             IconButton(
                 onClick = {
                     viewMode = if (viewMode == MaterialsViewMode.LIST)
@@ -65,7 +67,6 @@ fun MaterialsSheetContent(
                     contentDescription = "Переключить вид"
                 )
             }
-            // Добавить вещь
             IconButton(onClick = onAddClick) {
                 Icon(Icons.Default.Add, contentDescription = "Добавить вещь")
             }
@@ -73,11 +74,11 @@ fun MaterialsSheetContent(
 
         HorizontalDivider()
 
-        // ==== Список ====
         when (viewMode) {
             MaterialsViewMode.LIST -> {
                 MaterialsList(
                     items = items,
+                    categoriesMap = categoriesMap,
                     onItemClick = onItemClick,
                     onItemLongClick = onItemLongClick
                 )
@@ -85,6 +86,7 @@ fun MaterialsSheetContent(
             MaterialsViewMode.GROUPS -> {
                 MaterialsGrouped(
                     items = items,
+                    categoriesMap = categoriesMap,
                     onItemClick = onItemClick,
                     onItemLongClick = onItemLongClick
                 )
@@ -97,6 +99,7 @@ fun MaterialsSheetContent(
 @Composable
 private fun MaterialsList(
     items: List<StorageNode>,
+    categoriesMap: Map<String, String>,
     onItemClick: (StorageNode) -> Unit,
     onItemLongClick: (StorageNode) -> Unit
 ) {
@@ -109,6 +112,7 @@ private fun MaterialsList(
         items(sorted, key = { it.id }) { item ->
             MaterialRow(
                 item = item,
+                categoriesMap = categoriesMap,
                 onItemClick = onItemClick,
                 onItemLongClick = onItemLongClick
             )
@@ -120,12 +124,11 @@ private fun MaterialsList(
 @Composable
 private fun MaterialsGrouped(
     items: List<StorageNode>,
+    categoriesMap: Map<String, String>,
     onItemClick: (StorageNode) -> Unit,
     onItemLongClick: (StorageNode) -> Unit
 ) {
-    // Группируем по категории
     val grouped = items.groupBy { it.category ?: "Без категории" }
-    // Сортируем группы по имени, «Без категории» — в конец
     val groups = grouped.toSortedMap(compareBy { if (it == "Без категории") "яяя" else it.lowercase() })
 
     LazyColumn(
@@ -142,6 +145,7 @@ private fun MaterialsGrouped(
             ) { item ->
                 MaterialRow(
                     item = item,
+                    categoriesMap = categoriesMap,
                     onItemClick = onItemClick,
                     onItemLongClick = onItemLongClick
                 )
@@ -182,6 +186,7 @@ private fun CategoryHeader(category: String, count: Int) {
 @Composable
 private fun MaterialRow(
     item: StorageNode,
+    categoriesMap: Map<String, String>,
     onItemClick: (StorageNode) -> Unit,
     onItemLongClick: (StorageNode) -> Unit
 ) {
@@ -195,6 +200,26 @@ private fun MaterialRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // ==== Иконка категории ====
+        val iconName = item.category?.let { categoriesMap[it] }
+        if (iconName != null) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    IconRegistry.get(iconName),
+                    contentDescription = null,
+                    tint = IconRegistry.getColor(iconName),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+        }
+
         Column(Modifier.weight(1f)) {
             Text(
                 item.name,
@@ -210,6 +235,29 @@ private fun MaterialRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+            // ==== Бейдж «Отдано» ====
+            if (item.lentTo != null) {
+                val overdue = isOverdue(item.returnBy)
+                Surface(
+                    color = if (overdue)
+                        MaterialTheme.colorScheme.errorContainer
+                    else
+                        MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Text(
+                        if (overdue) "⚠️ Пора вернуть: ${item.lentTo}"
+                        else "📤 Отдано: ${item.lentTo}",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (overdue)
+                            MaterialTheme.colorScheme.onErrorContainer
+                        else
+                            MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
             }
         }
         Text(
@@ -281,6 +329,19 @@ fun MaterialContextMenu(
                         "Категория: ${item.category}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                // ==== Аренда ====
+                if (item.lentTo != null) {
+                    val overdue = isOverdue(item.returnBy)
+                    Text(
+                        if (overdue) "⚠️ Пора вернуть: ${item.lentTo}"
+                        else "📤 Отдано: ${item.lentTo}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (overdue)
+                            MaterialTheme.colorScheme.error
+                        else
+                            MaterialTheme.colorScheme.tertiary
                     )
                 }
             }

@@ -15,6 +15,7 @@ import androidx.navigation.navArgument
 import com.example.masterka.data.AppTheme
 import com.example.masterka.data.ThemePreferences
 import com.example.masterka.ui.backup.BackupScreen
+import com.example.masterka.ui.categories.CategoriesScreen
 import com.example.masterka.ui.home.HomeScreen
 import com.example.masterka.ui.item.ItemScreen
 import com.example.masterka.ui.materials.MaterialsScreen
@@ -29,6 +30,7 @@ object Routes {
     const val MATERIALS = "materials"
     const val ITEM = "item/{itemId}"
     const val BACKUP = "backup"
+    const val CATEGORIES = "categories"
     fun node(id: Long) = "node/$id"
     fun item(id: Long) = "item/$id"
 }
@@ -73,6 +75,9 @@ fun MasterkaNavGraph() {
                 },
                 onBackupClick = {
                     navController.navigate(Routes.BACKUP)
+                },
+                onCategoriesClick = {
+                    navController.navigate(Routes.CATEGORIES)
                 }
             )
         }
@@ -127,6 +132,11 @@ fun MasterkaNavGraph() {
         // ==== ЭКРАН РЕЗЕРВНОЙ КОПИИ ====
         composable(Routes.BACKUP) {
             BackupScreen(onBack = { navController.popBackStack() })
+        }
+
+        // ==== ЭКРАН КАТЕГОРИЙ ====
+        composable(Routes.CATEGORIES) {
+            CategoriesScreen(onBack = { navController.popBackStack() })
         }
     }
 }

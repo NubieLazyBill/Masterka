@@ -24,10 +24,12 @@ fun HomeScreen(
     onItemClick: (StorageNode) -> Unit,
     vm: HomeViewModel = viewModel(),
     onBackupClick: () -> Unit,
+    onCategoriesClick: () -> Unit,
 ) {
     val root by vm.rootNode.collectAsState()
     val children by vm.children.collectAsState()
     val allCategories by vm.allCategories.collectAsState()
+    val categoriesMap by vm.categoriesMap.collectAsState()
 
     val rootNode = root ?: return
 
@@ -58,7 +60,9 @@ fun HomeScreen(
                 onMaterialsClick = onMaterialsClick,
                 showAddItem = false,
                 onAddItemWithCategory = { _, _, _, _, _, _ -> },
-                onBackupClick = onBackupClick
+                onBackupClick = onBackupClick,
+                onCategoriesClick = onCategoriesClick,
+                categoriesMap = categoriesMap,
             )
         }
     }
