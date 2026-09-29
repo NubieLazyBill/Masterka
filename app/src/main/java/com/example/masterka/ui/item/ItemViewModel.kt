@@ -79,4 +79,12 @@ class ItemViewModel(app: Application) : AndroidViewModel(app) {
         }
         return parts.joinToString(" → ")
     }
+
+    fun deleteItem(onDone: () -> Unit) {
+        val current = _item.value ?: return
+        viewModelScope.launch {
+            dao.delete(current)
+            onDone()
+        }
+    }
 }

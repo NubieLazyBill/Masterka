@@ -69,7 +69,8 @@ class MaterialsViewModel(app: Application) : AndroidViewModel(app) {
         val filtered = if (q.isBlank()) base else base.filter {
             it.item.name.lowercase().contains(q) ||
                     (it.item.note?.lowercase()?.contains(q) == true) ||
-                    it.location.lowercase().contains(q)
+                    it.location.lowercase().contains(q) ||
+                    (it.item.category?.lowercase()?.contains(q) == true)   // ← добавь эту строку
         }
 
         return when (s) {
@@ -98,6 +99,12 @@ class MaterialsViewModel(app: Application) : AndroidViewModel(app) {
     fun updateQuantity(item: StorageNode, newQty: Float) {
         viewModelScope.launch {
             dao.updateQuantity(item.id, newQty, item.unit)
+        }
+    }
+
+    fun deleteItem(item: StorageNode) {
+        viewModelScope.launch {
+            dao.delete(item)
         }
     }
 }

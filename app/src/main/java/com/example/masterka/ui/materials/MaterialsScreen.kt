@@ -1,31 +1,43 @@
 package com.example.masterka.ui.materials
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.example.masterka.data.StorageNode
-import androidx.compose.material3.HorizontalDivider
+import com.example.masterka.ui.common.formatQty
+import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
+enum class MaterialsViewMode {
+    LIST,
+    GROUPS
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MaterialsScreen(
     onBack: () -> Unit,
@@ -36,45 +48,34 @@ fun MaterialsScreen(
     val sort by vm.sort.collectAsState()
     val rowsAll by vm.rows.collectAsState()
 
-    // Пересчёт при изменении любого из трёх
     val rows = remember(query, sort, rowsAll) { vm.filteredAndSorted() }
 
-    var showSortMenu by remember { mutableStateOf(false) }
+    var viewMode by remember { mutableStateOf(MaterialsViewMode.GROUPS) }
+    var contextItem by remember { mutableStateOf<StorageNode?>(null) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Все материалы") },
+                title = { Text("Моё добро") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Назад"
+                        )
                     }
                 },
                 actions = {
-                    Box {
-                        IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.Default.Sort, contentDescription = "Сортировка")
-                        }
-                        DropdownMenu(
-                            expanded = showSortMenu,
-                            onDismissRequest = { showSortMenu = false }
-                        ) {
-                            SortItem("Имя: А→Я", MaterialsSort.NAME_ASC, sort) {
-                                vm.setSort(it); showSortMenu = false
-                            }
-                            SortItem("Имя: Я→А", MaterialsSort.NAME_DESC, sort) {
-                                vm.setSort(it); showSortMenu = false
-                            }
-                            SortItem("Кол-во: ↑", MaterialsSort.QTY_ASC, sort) {
-                                vm.setSort(it); showSortMenu = false
-                            }
-                            SortItem("Кол-во: ↓", MaterialsSort.QTY_DESC, sort) {
-                                vm.setSort(it); showSortMenu = false
-                            }
-                            SortItem("По месту", MaterialsSort.LOCATION, sort) {
-                                vm.setSort(it); showSortMenu = false
-                            }
-                        }
+                    IconButton(onClick = {
+                        viewMode = if (viewMode == MaterialsViewMode.LIST)
+                            MaterialsViewMode.GROUPS
+                        else MaterialsViewMode.LIST
+                    }) {
+                        Icon(
+                            if (viewMode == MaterialsViewMode.LIST) Icons.Default.ViewAgenda
+                            else Icons.Default.ViewList,
+                            contentDescription = "Переключить вид"
+                        )
                     }
                 }
             )
@@ -85,14 +86,14 @@ fun MaterialsScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Поиск
+            // ==== Поиск ====
             OutlinedTextField(
                 value = query,
                 onValueChange = vm::setQuery,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 8.dp),
-                placeholder = { Text("Поиск по названию, заметке, месту...") },
+                placeholder = { Text("Поиск...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
@@ -101,172 +102,314 @@ fun MaterialsScreen(
                         }
                     }
                 },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { /* live-search */ })
+                singleLine = true
             )
 
-            // Счётчик
+            // ==== Чипсы категорий ====
+            val allCategories = remember(rowsAll) {
+                rowsAll.mapNotNull { it.item.category }
+                    .distinct()
+                    .sorted()
+            }
+            if (allCategories.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        FilterChip(
+                            selected = query.isEmpty(),
+                            onClick = { vm.setQuery("") },
+                            label = { Text("Все") }
+                        )
+                    }
+                    items(allCategories) { cat ->
+                        FilterChip(
+                            selected = query == cat,
+                            onClick = { vm.setQuery(cat) },
+                            label = { Text(cat) }
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // ==== Сводка ====
             Text(
-                "${rows.size} позиций",
-                style = MaterialTheme.typography.labelMedium,
+                "Всего: ${rows.size}",
+                style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
 
-            // Заголовок таблицы
-            HeaderRow()
+            Spacer(Modifier.height(4.dp))
 
-            // Строки
+            // ==== Список ====
             if (rows.isEmpty()) {
                 Box(
                     Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        if (query.isBlank())
-                            "Пока ничего нет.\nДобавь вещи через экран зоны."
-                        else
-                            "Ничего не найдено",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.Inventory2,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            if (query.isBlank())
+                                "Пока ничего нет.\nДобавь вещи через экран зоны."
+                            else
+                                "Ничего не найдено",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 24.dp)
-                ) {
-                    items(rows, key = { it.item.id }) { row ->
-                        MaterialItemRow(
-                            row = row,
-                            onLocationClick = {
-                                // Открыть контейнер, где лежит вещь — это родитель вещи
-                                // Если родитель есть, открываем его. Передадим сам item вверх,
-                                // а родителя найдём на стороне навигации.
-                                onLocationClick(row.item)
-                            }
+                when (viewMode) {
+                    MaterialsViewMode.LIST -> {
+                        MaterialsListContent(
+                            rows = rows,
+                            onItemClick = onLocationClick,
+                            onItemLongClick = { contextItem = it.item }
+                        )
+                    }
+                    MaterialsViewMode.GROUPS -> {
+                        MaterialsGroupedContent(
+                            rows = rows,
+                            onItemClick = onLocationClick,
+                            onItemLongClick = { contextItem = it.item }
                         )
                     }
                 }
             }
         }
     }
-}
 
-@Composable
-private fun SortItem(
-    label: String,
-    value: MaterialsSort,
-    current: MaterialsSort,
-    onSelect: (MaterialsSort) -> Unit
-) {
-    DropdownMenuItem(
-        text = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = value == current, onClick = { onSelect(value) })
-                Spacer(Modifier.width(4.dp))
-                Text(label)
+    // ==== Контекстное меню ====
+    val ctxItem = contextItem
+    if (ctxItem != null) {
+        AlertDialog(
+            onDismissRequest = { contextItem = null },
+            title = { Text(ctxItem.name) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "${formatQty(ctxItem.quantity)} ${ctxItem.unit}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    if (!ctxItem.category.isNullOrBlank()) {
+                        Text(
+                            "Категория: ${ctxItem.category}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val item = ctxItem
+                    contextItem = null
+                    onLocationClick(item)
+                }) { Text("Открыть") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        vm.deleteItem(ctxItem)
+                        contextItem = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Удалить") }
             }
-        },
-        onClick = { onSelect(value) }
-    )
-}
-
-@Composable
-private fun HeaderRow() {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            "Название",
-            modifier = Modifier.weight(1.6f),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-        Text(
-            "Кол-во",
-            modifier = Modifier.weight(0.7f),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-        Text(
-            "Ед.",
-            modifier = Modifier.weight(0.5f),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-        Text(
-            "Где лежит",
-            modifier = Modifier.weight(1.6f),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold
         )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MaterialItemRow(
-    row: MaterialRow,
-    onLocationClick: () -> Unit
+private fun MaterialsListContent(
+    rows: List<MaterialRow>,
+    onItemClick: (StorageNode) -> Unit,
+    onItemLongClick: (MaterialRow) -> Unit
 ) {
-    val item = row.item
-    Column {
+    val sorted = rows.sortedBy { it.item.name.lowercase() }
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 16.dp)
+    ) {
+        items(sorted, key = { it.item.id }) { row ->
+            MaterialRowItem(
+                row = row,
+                onItemClick = onItemClick,
+                onItemLongClick = onItemLongClick
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MaterialsGroupedContent(
+    rows: List<MaterialRow>,
+    onItemClick: (StorageNode) -> Unit,
+    onItemLongClick: (MaterialRow) -> Unit
+) {
+    val grouped = rows.groupBy { it.item.category ?: "Без категории" }
+    val groups = grouped.toSortedMap(
+        compareBy { if (it == "Без категории") "яяя" else it.lowercase() }
+    )
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 16.dp)
+    ) {
+        groups.forEach { (category, itemsInCategory) ->
+            item(key = "header_$category") {
+                CategoryHeader(category = category, count = itemsInCategory.size)
+            }
+            items(
+                itemsInCategory.sortedBy { it.item.name.lowercase() },
+                key = { it.item.id }
+            ) { row ->
+                MaterialRowItem(
+                    row = row,
+                    onItemClick = onItemClick,
+                    onItemLongClick = onItemLongClick
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryHeader(category: String, count: Int) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .clickable { onLocationClick() }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                item.name,
-                modifier = Modifier.weight(1.6f),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                category.uppercase(),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
             )
             Text(
-                formatQty(item.quantity),
-                modifier = Modifier.weight(0.7f),
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                item.unit,
-                modifier = Modifier.weight(0.5f),
-                style = MaterialTheme.typography.bodySmall,
+                "$count",
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Text(
-                row.location,
-                modifier = Modifier.weight(1.6f),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
         }
-        if (!item.note.isNullOrBlank()) {
-            Text(
-                item.note,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        HorizontalDivider()
     }
 }
 
-private fun formatQty(q: Float): String {
-    return if (q == q.toInt().toFloat()) q.toInt().toString()
-    else "%.2f".format(q).trimEnd('0').trimEnd('.')
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MaterialRowItem(
+    row: MaterialRow,
+    onItemClick: (StorageNode) -> Unit,
+    onItemLongClick: (MaterialRow) -> Unit
+) {
+    val item = row.item
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { onItemClick(item) },
+                onLongClick = { onItemLongClick(row) }
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // ==== Миниатюра ====
+        Box(
+            Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!item.photoPath.isNullOrBlank()) {
+                AsyncImage(
+                    model = File(item.photoPath!!),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    Icons.Default.Inventory2,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        // ==== Имя, путь, заметка ====
+        Column(Modifier.weight(1f)) {
+            Text(
+                item.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (row.location.isNotBlank() && row.location != "—") {
+                Text(
+                    row.location,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (!item.note.isNullOrBlank()) {
+                Text(
+                    item.note!!,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        Spacer(Modifier.width(8.dp))
+
+        // ==== Количество ====
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                formatQty(item.quantity),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                item.unit,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+    HorizontalDivider()
 }

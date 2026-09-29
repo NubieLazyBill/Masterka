@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -19,7 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.masterka.data.NodeType
+import com.example.masterka.data.AppTheme
 import com.example.masterka.data.StorageNode
 import com.example.masterka.ui.common.NodeContent
 
@@ -29,6 +29,8 @@ fun NodeScreen(
     nodeId: Long,
     developerMode: Boolean,
     onDeveloperModeChange: (Boolean) -> Unit,
+    currentTheme: AppTheme,
+    onThemeChange: (AppTheme) -> Unit,
     onBack: () -> Unit,
     onChildClick: (StorageNode) -> Unit,
     onItemClick: (StorageNode) -> Unit,
@@ -39,6 +41,7 @@ fun NodeScreen(
     val node by vm.currentNode.collectAsState()
     val children by vm.children.collectAsState()
     val breadcrumbs by vm.breadcrumbs.collectAsState()
+    val allCategories by vm.allCategories.collectAsState()
 
     val current = node ?: return
 
@@ -60,7 +63,10 @@ fun NodeScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Назад"
+                        )
                     }
                 }
             )
@@ -71,6 +77,9 @@ fun NodeScreen(
                 node = current,
                 children = children,
                 developerMode = developerMode,
+                allCategories = allCategories,
+                currentTheme = currentTheme,
+                onThemeChange = onThemeChange,
                 onDeveloperModeChange = onDeveloperModeChange,
                 onAddPhoto = { path -> vm.addPhoto(path) },
                 onRemovePhoto = { index -> vm.removePhotoAt(index) },
@@ -83,8 +92,8 @@ fun NodeScreen(
                 onItemClick = onItemClick,
                 showMaterialsButton = false,
                 showAddItem = true,
-                onAddItem = { name, qty, unit, note ->
-                    vm.addItemWithQuantity(name, qty, unit, note)
+                onAddItemWithCategory = { name, qty, unit, note, category, photoPath ->
+                    vm.addItemFull(name, qty, unit, note, category, photoPath)
                 }
             )
         }

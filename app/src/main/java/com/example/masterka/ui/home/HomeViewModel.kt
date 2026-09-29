@@ -11,7 +11,9 @@ import com.example.masterka.data.PolygonCodec
 import com.example.masterka.data.StorageNode
 import com.example.masterka.data.allPhotoPaths
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
@@ -24,11 +26,13 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val _children = MutableStateFlow<List<StorageNode>>(emptyList())
     val children = _children.asStateFlow()
 
+    val allCategories = dao.getAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     init {
         viewModelScope.launch {
             var root = dao.getRootNode()
             if (root == null) {
-                // Создаём корень, если его нет
                 val id = dao.insert(
                     StorageNode(
                         parentId = null,
@@ -62,7 +66,6 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             val current = node.allPhotoPaths().toMutableList()
             if (index !in current.indices) return@launch
             current.removeAt(index)
-            // Удаляем всех детей, привязанных к этому фото
             dao.deleteChildrenAtPhoto(node.id, index)
             val updated = node.copy(photoPathsJson = PhotoPathsCodec.encode(current))
             dao.update(updated)

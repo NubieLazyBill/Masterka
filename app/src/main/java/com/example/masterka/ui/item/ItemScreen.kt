@@ -4,20 +4,23 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -25,8 +28,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.masterka.ui.common.PhotoSourceDialog
 import com.example.masterka.ui.common.copyPhotoToInternal
+import com.example.masterka.ui.common.createTempCameraFile
+import com.example.masterka.ui.common.formatQty
+import com.example.masterka.ui.common.getUriForFile
 import java.io.File
+import com.example.masterka.ui.common.hasCameraPermission
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,8 +59,9 @@ fun ItemScreen(
     val categories by vm.allCategories.collectAsState()
     var categoryMenuExpanded by remember { mutableStateOf(false) }
     var showNewCategoryDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var fullScreenPhoto by remember { mutableStateOf(false) }
 
-    // Инициализация полей при входе в режим редактирования
     LaunchedEffect(item, editMode) {
         if (editMode && item != null) {
             editName = item!!.name
@@ -63,12 +72,50 @@ fun ItemScreen(
         }
     }
 
-    val pickPhoto = rememberLauncherForActivityResult(
+    var showPhotoSource by remember { mutableStateOf(false) }
+
+    // Галерея
+    val pickGalleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
             val photoPath = copyPhotoToInternal(context, uri)
             vm.setPhoto(photoPath)
+        }
+    }
+
+    // Камера
+    var cameraFile by remember { mutableStateOf<File?>(null) }
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        val file = cameraFile
+        if (success && file != null && file.exists()) {
+            vm.setPhoto(file.absolutePath)
+        }
+        cameraFile = null
+    }
+
+    // Launcher разрешения
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val file = createTempCameraFile(context)
+            cameraFile = file
+            val uri = getUriForFile(context, file)
+            takePictureLauncher.launch(uri)
+        }
+    }
+
+    fun launchCamera() {
+        if (hasCameraPermission(context)) {
+            val file = createTempCameraFile(context)
+            cameraFile = file
+            val uri = getUriForFile(context, file)
+            takePictureLauncher.launch(uri)
+        } else {
+            permissionLauncher.launch(android.Manifest.permission.CAMERA)
         }
     }
 
@@ -99,13 +146,23 @@ fun ItemScreen(
                     IconButton(onClick = {
                         if (editMode) editMode = false else onBack()
                     }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Назад"
+                        )
                     }
                 },
                 actions = {
                     if (!editMode) {
                         IconButton(onClick = { editMode = true }) {
                             Icon(Icons.Default.Edit, contentDescription = "Редактировать")
+                        }
+                        IconButton(onClick = { showDeleteConfirm = true }) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Удалить",
+                                tint = MaterialTheme.colorScheme.error
+                            )
                         }
                     }
                 }
@@ -145,8 +202,8 @@ fun ItemScreen(
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(260.dp),
-                    contentScale = ContentScale.Crop
+                        .clickable { fullScreenPhoto = true },
+                    contentScale = ContentScale.FillWidth
                 )
             } else {
                 Box(
@@ -163,13 +220,16 @@ fun ItemScreen(
                 }
             }
 
+            if (fullScreenPhoto && current.photoPath != null) {
+                FullScreenPhotoDialog(
+                    photoPath = current.photoPath!!,
+                    onDismiss = { fullScreenPhoto = false }
+                )
+            }
+
             if (editMode) {
                 OutlinedButton(
-                    onClick = {
-                        pickPhoto.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
+                    onClick = { showPhotoSource = true },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.Image, contentDescription = null)
@@ -191,23 +251,42 @@ fun ItemScreen(
                 InfoRow("Название", current.name)
             }
 
-            // ==== Количество и единица ====
+            // ==== Количество ====
             if (editMode) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = editQty,
-                        onValueChange = { editQty = it },
-                        label = { Text("Кол-во") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = editUnit,
-                        onValueChange = { editUnit = it },
-                        label = { Text("Ед. изм.") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = editQty,
+                            onValueChange = { editQty = it },
+                            label = { Text("Кол-во") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = editUnit,
+                            onValueChange = { editUnit = it },
+                            label = { Text("Ед. изм.") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("1", "5", "10", "100").forEach { preset ->
+                            OutlinedButton(
+                                onClick = { editQty = preset },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+                            ) { Text(preset, style = MaterialTheme.typography.labelMedium) }
+                        }
+                        OutlinedButton(
+                            onClick = { editQty = "много" },
+                            modifier = Modifier.weight(1.2f),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+                        ) { Text("много", style = MaterialTheme.typography.labelMedium) }
+                    }
                 }
             } else {
                 InfoRow("Количество", "${formatQty(current.quantity)} ${current.unit}")
@@ -229,7 +308,6 @@ fun ItemScreen(
                             }
                         }
                     )
-                    // Оверлей на поле, чтобы клик по нему открывал меню
                     Box(
                         Modifier
                             .matchParentSize()
@@ -339,6 +417,46 @@ fun ItemScreen(
             }
         )
     }
+
+    // ==== Диалог удаления ====
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Удалить вещь?") },
+            text = { Text("«${current.name}» будет удалена без возможности восстановления.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        vm.deleteItem { onBack() }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Удалить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Отмена") }
+            }
+        )
+    }
+
+    // ==== Диалог источника фото ====
+    if (showPhotoSource) {
+        PhotoSourceDialog(
+            onDismiss = { showPhotoSource = false },
+            onCameraClick = {
+                showPhotoSource = false
+                launchCamera()
+            },
+            onGalleryClick = {
+                showPhotoSource = false
+                pickGalleryLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            }
+        )
+    }
 }
 
 @Composable
@@ -357,7 +475,43 @@ private fun InfoRow(label: String, value: String) {
     }
 }
 
-private fun formatQty(q: Float): String {
-    return if (q == q.toInt().toFloat()) q.toInt().toString()
-    else "%.2f".format(q).trimEnd('0').trimEnd('.')
+@Composable
+private fun FullScreenPhotoDialog(
+    photoPath: String,
+    onDismiss: () -> Unit
+) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            AsyncImage(
+                model = File(photoPath),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .align(Alignment.Center)
+                    .clickable(onClick = onDismiss),
+                contentScale = ContentScale.Fit
+            )
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Закрыть",
+                    tint = Color.White
+                )
+            }
+        }
+    }
 }

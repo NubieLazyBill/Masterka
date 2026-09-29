@@ -9,6 +9,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.masterka.data.AppTheme
 import com.example.masterka.data.StorageNode
 import com.example.masterka.ui.common.NodeContent
 
@@ -16,13 +17,17 @@ import com.example.masterka.ui.common.NodeContent
 fun HomeScreen(
     developerMode: Boolean,
     onDeveloperModeChange: (Boolean) -> Unit,
+    currentTheme: AppTheme,
+    onThemeChange: (AppTheme) -> Unit,
     onMaterialsClick: () -> Unit,
     onChildClick: (StorageNode) -> Unit,
     onItemClick: (StorageNode) -> Unit,
-    vm: HomeViewModel = viewModel()
+    vm: HomeViewModel = viewModel(),
+    onBackupClick: () -> Unit,
 ) {
     val root by vm.rootNode.collectAsState()
     val children by vm.children.collectAsState()
+    val allCategories by vm.allCategories.collectAsState()
 
     val rootNode = root ?: return
 
@@ -36,6 +41,9 @@ fun HomeScreen(
                 node = rootNode,
                 children = children,
                 developerMode = developerMode,
+                allCategories = allCategories,
+                currentTheme = currentTheme,
+                onThemeChange = onThemeChange,
                 onDeveloperModeChange = onDeveloperModeChange,
                 onAddPhoto = { path -> vm.addPhoto(path) },
                 onRemovePhoto = { index -> vm.removePhotoAt(index) },
@@ -49,7 +57,8 @@ fun HomeScreen(
                 showMaterialsButton = true,
                 onMaterialsClick = onMaterialsClick,
                 showAddItem = false,
-                onAddItem = { _, _, _, _ -> }
+                onAddItemWithCategory = { _, _, _, _, _, _ -> },
+                onBackupClick = onBackupClick
             )
         }
     }

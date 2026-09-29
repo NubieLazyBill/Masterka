@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import com.example.masterka.data.PhotoPathsCodec
 import com.example.masterka.data.allPhotoPaths
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 
 class NodeViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -26,6 +28,9 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _breadcrumbs = MutableStateFlow<List<StorageNode>>(emptyList())
     val breadcrumbs = _breadcrumbs.asStateFlow()
+
+    val allCategories = dao.getAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun loadNode(nodeId: Long) {
         viewModelScope.launch {
@@ -211,6 +216,34 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             dao.update(node.copy(photoPath = path))
             _currentNode.value = node.copy(photoPath = path)
+        }
+    }
+
+    fun addItemFull(
+        name: String,
+        quantity: Float,
+        unit: String,
+        note: String?,
+        category: String?,
+        photoPath: String?
+    ) {
+        val parent = _currentNode.value ?: return
+        viewModelScope.launch {
+            val id = dao.insert(
+                StorageNode(
+                    parentId = parent.id,
+                    name = name.trim(),
+                    type = NodeType.ITEM,
+                    x = 0f,
+                    y = 0f,
+                    quantity = quantity,
+                    unit = unit.trim().ifBlank { "шт" },
+                    note = note?.trim()?.ifBlank { null },
+                    category = category?.trim()?.ifBlank { null },
+                    photoPath = photoPath
+                )
+            )
+            _children.value = dao.getChildrenOnce(parent.id)
         }
     }
 }

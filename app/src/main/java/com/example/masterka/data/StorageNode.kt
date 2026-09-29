@@ -56,3 +56,8 @@ fun StorageNode.allPhotoPaths(): List<String> {
     return if (fromJson.isNotEmpty()) fromJson
     else photoPath?.let { listOf(it) } ?: emptyList()
 }
+
+/**
+ * «Много» — quantity == -1. Отображается как «много» в UI.
+ */
+fun StorageNode.isMany(): Boolean = quantity < 0f
