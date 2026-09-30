@@ -34,6 +34,8 @@ fun NodeScreen(
     onBack: () -> Unit,
     onChildClick: (StorageNode) -> Unit,
     onItemClick: (StorageNode) -> Unit,
+    onCategoriesClick: () -> Unit,      // ← НОВОЕ
+    onBackupClick: () -> Unit,          // ← НОВОЕ
     vm: NodeViewModel = viewModel()
 ) {
     LaunchedEffect(nodeId) { vm.loadNode(nodeId) }
@@ -42,7 +44,7 @@ fun NodeScreen(
     val children by vm.children.collectAsState()
     val breadcrumbs by vm.breadcrumbs.collectAsState()
     val allCategories by vm.allCategories.collectAsState()
-    val categoriesMap by vm.categoriesMap.collectAsState()   // ← НОВОЕ
+    val categoriesMap by vm.categoriesMap.collectAsState()
 
     val current = node ?: return
 
@@ -78,22 +80,29 @@ fun NodeScreen(
                 node = current,
                 children = children,
                 developerMode = developerMode,
+                onDeleteNode = { n -> vm.deleteChild(n) },
+                onDeleteNodes = { ids -> vm.deleteItems(ids) },                  // ← НОВОЕ
+                onMoveNodes = { ids, parentId -> vm.moveItems(ids, parentId) },  // ← НОВОЕ
                 allCategories = allCategories,
-                categoriesMap = categoriesMap,   // ← НОВОЕ
+                categoriesMap = categoriesMap,
                 currentTheme = currentTheme,
                 onThemeChange = onThemeChange,
                 onDeveloperModeChange = onDeveloperModeChange,
+                onCategoriesClick = onCategoriesClick,      // ← НОВОЕ
+                onBackupClick = onBackupClick,              // ← НОВОЕ
+                onAddCategoryToDb = { name -> vm.addCategory(name) },   // ← НОВОЕ
                 onAddPhoto = { path -> vm.addPhoto(path) },
                 onRemovePhoto = { index -> vm.removePhotoAt(index) },
                 onAddContainerAtPhoto = { name, points, photoIndex ->
                     vm.addContainerAtPhoto(name, points, photoIndex)
                 },
                 onUpdatePolygon = { id, points -> vm.updatePolygon(id, points) },
-                onDeleteNode = { n -> vm.deleteChild(n) },
                 onChildClick = onChildClick,
                 onItemClick = onItemClick,
                 showMaterialsButton = false,
                 showAddItem = true,
+                onLoadChildren = { parentId -> vm.loadChildrenOnce(parentId) },
+                onLoadParent = { id -> vm.loadParentOnce(id) },   // ← НОВОЕ
                 onAddItemWithCategory = { name, qty, unit, note, category, photoPath ->
                     vm.addItemFull(name, qty, unit, note, category, photoPath)
                 }

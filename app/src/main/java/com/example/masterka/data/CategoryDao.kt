@@ -35,4 +35,9 @@ interface CategoryDao {
      */
     @Query("UPDATE nodes SET category = NULL WHERE category = :name")
     suspend fun clearCategoryInNodes(name: String)
+
+    @Query("SELECT * FROM categories ORDER BY name COLLATE NOCASE")
+    suspend fun getAllCategoriesOnce(): List<Category>
+
+
 }

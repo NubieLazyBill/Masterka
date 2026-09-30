@@ -43,7 +43,8 @@ enum class MaterialsViewMode {
 @Composable
 fun MaterialsScreen(
     onBack: () -> Unit,
-    onLocationClick: (StorageNode) -> Unit,
+    onItemClick: (StorageNode) -> Unit,       // ← открыть вещь
+    onLocationClick: (StorageNode) -> Unit,   // ← открыть родителя
     vm: MaterialsViewModel = viewModel()
 ) {
     val query by vm.query.collectAsState()
@@ -179,14 +180,16 @@ fun MaterialsScreen(
                     MaterialsViewMode.LIST -> {
                         MaterialsListContent(
                             rows = rows,
-                            onItemClick = onLocationClick,
+                            onItemClick = onItemClick,           // ← НОВОЕ
+                            onLocationClick = onLocationClick,
                             onItemLongClick = { contextItem = it.item }
                         )
                     }
                     MaterialsViewMode.GROUPS -> {
                         MaterialsGroupedContent(
                             rows = rows,
-                            onItemClick = onLocationClick,
+                            onItemClick = onItemClick,           // ← НОВОЕ
+                            onLocationClick = onLocationClick,
                             onItemLongClick = { contextItem = it.item }
                         )
                     }
@@ -243,6 +246,7 @@ fun MaterialsScreen(
 private fun MaterialsListContent(
     rows: List<MaterialRow>,
     onItemClick: (StorageNode) -> Unit,
+    onLocationClick: (StorageNode) -> Unit,
     onItemLongClick: (MaterialRow) -> Unit
 ) {
     val sorted = rows.sortedBy { it.item.name.lowercase() }
@@ -254,6 +258,7 @@ private fun MaterialsListContent(
             MaterialRowItem(
                 row = row,
                 onItemClick = onItemClick,
+                onLocationClick = onLocationClick,
                 onItemLongClick = onItemLongClick
             )
         }
@@ -265,6 +270,7 @@ private fun MaterialsListContent(
 private fun MaterialsGroupedContent(
     rows: List<MaterialRow>,
     onItemClick: (StorageNode) -> Unit,
+    onLocationClick: (StorageNode) -> Unit,
     onItemLongClick: (MaterialRow) -> Unit
 ) {
     val grouped = rows.groupBy { it.item.category ?: "Без категории" }
@@ -278,7 +284,6 @@ private fun MaterialsGroupedContent(
     ) {
         groups.forEach { (category, itemsInCategory) ->
             item(key = "header_$category") {
-                // Иконка категории — из первой вещи в группе
                 val iconName = itemsInCategory.firstOrNull()?.categoryIcon
                 CategoryHeader(
                     category = category,
@@ -293,6 +298,7 @@ private fun MaterialsGroupedContent(
                 MaterialRowItem(
                     row = row,
                     onItemClick = onItemClick,
+                    onLocationClick = onLocationClick,
                     onItemLongClick = onItemLongClick
                 )
             }
@@ -347,7 +353,8 @@ private fun CategoryHeader(
 @Composable
 private fun MaterialRowItem(
     row: MaterialRow,
-    onItemClick: (StorageNode) -> Unit,
+    onItemClick: (StorageNode) -> Unit,      // ← открыть вещь
+    onLocationClick: (StorageNode) -> Unit,  // ← открыть родителя
     onItemLongClick: (MaterialRow) -> Unit
 ) {
     val item = row.item
@@ -356,18 +363,19 @@ private fun MaterialRowItem(
         Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = { onItemClick(item) },
+                onClick = { onLocationClick(item) },   // ← тап по строке → к родителю
                 onLongClick = { onItemLongClick(row) }
             )
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // ==== Миниатюра ====
+        // ==== Миниатюра (тап → открыть вещь) ====
         Box(
             Modifier
                 .size(56.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable { onItemClick(item) },   // ← тап по фото → к вещи
             contentAlignment = Alignment.Center
         ) {
             if (!item.photoPath.isNullOrBlank()) {

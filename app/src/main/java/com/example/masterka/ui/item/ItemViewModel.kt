@@ -21,6 +21,11 @@ class ItemViewModel(app: Application) : AndroidViewModel(app) {
     private val _item = MutableStateFlow<StorageNode?>(null)
     val item = _item.asStateFlow()
 
+    // Цепочка предков вещи: [Мастерская, Шкаф, Полка 1]. Без самой вещи.
+    private val _pathNodes = MutableStateFlow<List<StorageNode>>(emptyList())
+    val pathNodes = _pathNodes.asStateFlow()
+
+    // Удобная строка для отладки/старых мест
     private val _path = MutableStateFlow("")
     val path = _path.asStateFlow()
 
@@ -28,7 +33,9 @@ class ItemViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val node = dao.getById(itemId) ?: return@launch
             _item.value = node
-            _path.value = buildPath(node)
+            val chain = buildPathNodes(node)
+            _pathNodes.value = chain
+            _path.value = chain.joinToString(" → ") { it.name }
         }
     }
 
@@ -55,7 +62,6 @@ class ItemViewModel(app: Application) : AndroidViewModel(app) {
                 photoPath = current.photoPath
             )
 
-            // Если заметка изменилась — обновляем timestamp
             if (noteChanged) {
                 dao.updateNoteWithTimestamp(
                     id = current.id,
@@ -115,13 +121,17 @@ class ItemViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun buildPath(node: StorageNode): String {
-        val parts = mutableListOf<String>()
+    /**
+     * Строит цепочку предков (от корня к родителю), БЕЗ самой вещи.
+     * Для вещи возвращает [Мастерская, Шкаф, Полка 1].
+     */
+    private suspend fun buildPathNodes(node: StorageNode): List<StorageNode> {
+        val path = mutableListOf<StorageNode>()
         var current: StorageNode? = node.parentId?.let { dao.getById(it) }
         while (current != null) {
-            parts.add(0, current.name)
+            path.add(0, current)
             current = current.parentId?.let { dao.getById(it) }
         }
-        return parts.joinToString(" → ")
+        return path
     }
 }

@@ -12,9 +12,26 @@ import kotlinx.coroutines.launch
 class CategoriesViewModel(app: Application) : AndroidViewModel(app) {
 
     private val categoryDao = (app as MasterkaApp).categoryDao
+    private val dao = (app as MasterkaApp).dao
 
     val categories = categoryDao.getAllCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    init {
+        // ==== Досоздание категорий из вещей (одноразово при заходе) ====
+        viewModelScope.launch {
+            val existingNames = categoryDao.getAllCategoriesOnce().map { it.name }.toSet()
+            val categoriesFromNodes = dao.getAllCategoriesOnce()
+
+            categoriesFromNodes.forEach { name ->
+                if (name.isNotBlank() && name !in existingNames) {
+                    categoryDao.insert(
+                        Category(name = name, iconName = "Category")
+                    )
+                }
+            }
+        }
+    }
 
     fun addCategory(name: String, iconName: String) {
         viewModelScope.launch {
@@ -33,15 +50,12 @@ class CategoriesViewModel(app: Application) : AndroidViewModel(app) {
             val cleanNewName = newName.trim()
             if (cleanNewName.isBlank()) return@launch
 
-            // 1. Обновляем в таблице categories
             categoryDao.update(
                 category.copy(
                     name = cleanNewName,
                     iconName = newIcon
                 )
             )
-
-            // 2. Если имя изменилось — переименовываем во всех вещах
             if (oldName != cleanNewName) {
                 categoryDao.renameCategoryInNodes(oldName, cleanNewName)
             }
@@ -50,9 +64,7 @@ class CategoriesViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteCategory(category: Category) {
         viewModelScope.launch {
-            // Сначала очищаем категорию у всех вещей
             categoryDao.clearCategoryInNodes(category.name)
-            // Потом удаляем саму категорию
             categoryDao.delete(category)
         }
     }

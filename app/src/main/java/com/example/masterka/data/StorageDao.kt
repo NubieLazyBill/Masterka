@@ -111,4 +111,7 @@ interface StorageDao {
 
     @Query("DELETE FROM nodes WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("SELECT DISTINCT category FROM nodes WHERE category IS NOT NULL AND category != ''")
+    suspend fun getAllCategoriesOnce(): List<String>
 }

@@ -14,8 +14,6 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -26,9 +24,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -58,11 +59,6 @@ import com.example.masterka.data.PolygonCodec
 import com.example.masterka.data.StorageNode
 import com.example.masterka.data.allPhotoPaths
 import java.io.File
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.CloudUpload
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,9 +74,14 @@ fun NodeContent(
     onBackupClick: () -> Unit = {},
     categoriesMap: Map<String, String> = emptyMap(),
     onAddPhoto: (String) -> Unit,
+    onAddCategoryToDb: (String) -> Unit = {},
     onRemovePhoto: (Int) -> Unit,
+    onLoadChildren: suspend (Long) -> List<StorageNode> = { emptyList() },
+    onLoadParent: suspend (Long) -> StorageNode? = { null },
     onAddContainerAtPhoto: (String, List<NormalizedPoint>, Int) -> Unit,
     onUpdatePolygon: (Long, List<NormalizedPoint>) -> Unit,
+    onDeleteNodes: (Set<Long>) -> Unit = {},
+    onMoveNodes: (Set<Long>, Long) -> Unit = { _, _ -> },
     onDeleteNode: (StorageNode) -> Unit,
     onChildClick: (StorageNode) -> Unit,
     onItemClick: (StorageNode) -> Unit,
@@ -117,7 +118,6 @@ fun NodeContent(
         currentZoom = 1f
     }
 
-    // ==== Галерея для фото узла ====
     val pickPhotoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
@@ -127,7 +127,6 @@ fun NodeContent(
         }
     }
 
-    // ==== Камера для фото узла — правильный порядок ====
     var mainCameraFile by remember { mutableStateOf<File?>(null) }
 
     val mainTakePictureLauncher = rememberLauncherForActivityResult(
@@ -165,7 +164,6 @@ fun NodeContent(
     var showMainPhotoSource by remember { mutableStateOf(false) }
     var selectedMarker by remember { mutableStateOf<StorageNode?>(null) }
 
-    // ==== Режим рисования ====
     var drawingMode by remember { mutableStateOf(false) }
     var drawingShape by remember { mutableStateOf(DrawingShape.POLYGON) }
     var showShapePickerDialog by remember { mutableStateOf(false) }
@@ -177,10 +175,17 @@ fun NodeContent(
     var editingPolygonName by remember { mutableStateOf<String?>(null) }
 
     var showAddItemDialog by remember { mutableStateOf(false) }
-    var showMaterialsSheet by remember { mutableStateOf(false) }
+    var showMaterialsSheet by rememberSaveable { mutableStateOf(false) }
+    var pendingRestoreSheet by rememberSaveable { mutableStateOf(false) }
     var sheetContextItem by remember { mutableStateOf<StorageNode?>(null) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showDevMenu by remember { mutableStateOf(false) }
+
+    var selectionMode by remember { mutableStateOf(false) }
+    val selectedIds = remember { mutableStateListOf<Long>() }
+    var moveMode by remember { mutableStateOf(false) }
+    var moveIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showDeleteSelectedConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(developerMode) {
         if (!developerMode) {
@@ -201,8 +206,11 @@ fun NodeContent(
         drawingMode = false
         drawingPoints.clear()
         showDevMenu = false
-        showMaterialsSheet = false
         sheetContextItem = null
+        if (pendingRestoreSheet) {
+            showMaterialsSheet = true
+            pendingRestoreSheet = false
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -235,15 +243,10 @@ fun NodeContent(
                     },
                     hiddenMarkerId = editingPolygonId,
                     onMarkerClick = { marker ->
-                        if (developerMode) {
-                            selectedMarker = marker
-                        } else {
-                            onChildClick(marker)
-                        }
+                        if (developerMode) selectedMarker = marker
+                        else onChildClick(marker)
                     },
-                    onTapEmpty = {
-                        // Ничего не делаем — плашка закроется через onDismissRequest
-                    },
+                    onTapEmpty = { },
                     onZoomChanged = { zoom ->
                         if (currentPage == page) currentZoom = zoom
                     },
@@ -309,31 +312,20 @@ fun NodeContent(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Меню с действиями разработчика
                 if (developerMode) {
                     Box {
                         IconButton(onClick = { showDevMenu = true }) {
-                            Icon(
-                                Icons.Default.MoreVert,
-                                contentDescription = "Ещё"
-                            )
+                            Icon(Icons.Default.MoreVert, contentDescription = "Ещё")
                         }
                         DropdownMenu(
                             expanded = showDevMenu,
                             onDismissRequest = { showDevMenu = false }
                         ) {
-                            // Добавить фото
                             DropdownMenuItem(
                                 text = { Text("Добавить фото") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Image, contentDescription = null)
-                                },
-                                onClick = {
-                                    showDevMenu = false
-                                    showMainPhotoSource = true
-                                }
+                                leadingIcon = { Icon(Icons.Default.Image, contentDescription = null) },
+                                onClick = { showDevMenu = false; showMainPhotoSource = true }
                             )
-                            // Удалить фото — если >1
                             if (photos.size > 1) {
                                 DropdownMenuItem(
                                     text = { Text("Удалить фото") },
@@ -344,50 +336,28 @@ fun NodeContent(
                                             tint = MaterialTheme.colorScheme.error
                                         )
                                     },
-                                    onClick = {
-                                        showDevMenu = false
-                                        showDeletePhotoConfirm = true
-                                    }
+                                    onClick = { showDevMenu = false; showDeletePhotoConfirm = true }
                                 )
                             }
-                            // Тема
                             DropdownMenuItem(
                                 text = { Text("Тема") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Palette, contentDescription = null)
-                                },
-                                onClick = {
-                                    showDevMenu = false
-                                    showThemeDialog = true
-                                }
+                                leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null) },
+                                onClick = { showDevMenu = false; showThemeDialog = true }
                             )
-                            // Категории
                             DropdownMenuItem(
                                 text = { Text("Категории") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Category, contentDescription = null)
-                                },
-                                onClick = {
-                                    showDevMenu = false
-                                    onCategoriesClick()
-                                }
+                                leadingIcon = { Icon(Icons.Default.Category, contentDescription = null) },
+                                onClick = { showDevMenu = false; onCategoriesClick() }
                             )
-                            // Бэкап
                             DropdownMenuItem(
                                 text = { Text("Резервная копия") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.CloudUpload, contentDescription = null)
-                                },
-                                onClick = {
-                                    showDevMenu = false
-                                    onBackupClick()
-                                }
+                                leadingIcon = { Icon(Icons.Default.CloudUpload, contentDescription = null) },
+                                onClick = { showDevMenu = false; onBackupClick() }
                             )
                         }
                     }
                 }
 
-                // Тумблер Dev — всегда виден
                 FilterChip(
                     selected = developerMode,
                     onClick = { onDeveloperModeChange(!developerMode) },
@@ -612,6 +582,7 @@ fun NodeContent(
     if (showAddItemDialog) {
         AddItemDialog(
             existingCategories = allCategories,
+            onAddCategoryToDb = onAddCategoryToDb,
             onDismiss = { showAddItemDialog = false },
             onConfirm = { name, qty, unit, note, category, photoPath ->
                 onAddItemWithCategory(name, qty, unit, note, category, photoPath)
@@ -674,12 +645,6 @@ fun NodeContent(
 
     // ==== Диалог удаления зоны/контейнера ====
     if (showDeletePhotoConfirm) {
-        // Определяем тип текущего узла для текста
-        val typeName = when (node.type) {
-            NodeType.ZONE -> "зону"
-            NodeType.CONTAINER -> "контейнер"
-            NodeType.ITEM -> "вещь"
-        }
         val typeNameTitle = when (node.type) {
             NodeType.ZONE -> "зону"
             NodeType.CONTAINER -> "контейнер"
@@ -722,24 +687,48 @@ fun NodeContent(
     // ==== BottomSheet ====
     if (showMaterialsSheet && itemsOnly.isNotEmpty()) {
         ModalBottomSheet(
-            onDismissRequest = { showMaterialsSheet = false },
+            onDismissRequest = {
+                showMaterialsSheet = false
+                selectionMode = false
+                selectedIds.clear()
+            },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
         ) {
             MaterialsSheetContent(
                 items = itemsOnly,
-                categoriesMap = categoriesMap,   // ← НОВОЕ
+                categoriesMap = categoriesMap,
                 onItemClick = { item ->
+                    pendingRestoreSheet = true
                     showMaterialsSheet = false
                     onItemClick(item)
                 },
-                onItemLongClick = { item ->
-                    sheetContextItem = item
+                onAddClick = { showAddItemDialog = true },
+                modifier = Modifier.fillMaxHeight(0.7f),
+                selectionMode = selectionMode,
+                selectedIds = selectedIds.toSet(),
+                onEnterSelection = { item ->
+                    selectionMode = true
+                    selectedIds.clear()
+                    selectedIds.add(item.id)
                 },
-                onAddClick = {
+                onToggleSelection = { item ->
+                    if (item.id in selectedIds) selectedIds.remove(item.id)
+                    else selectedIds.add(item.id)
+                    if (selectedIds.isEmpty()) selectionMode = false
+                },
+                onExitSelection = {
+                    selectionMode = false
+                    selectedIds.clear()
+                },
+                onMoveSelected = {
+                    android.util.Log.d("MOVE", "onMoveSelected: ids=${selectedIds.size}")
+                    moveIds = selectedIds.toSet()
+                    moveMode = true
                     showMaterialsSheet = false
-                    showAddItemDialog = true
+                    selectionMode = false
+                    selectedIds.clear()
                 },
-                modifier = Modifier.fillMaxHeight(0.7f)
+                onDeleteSelected = { showDeleteSelectedConfirm = true }
             )
         }
     }
@@ -751,6 +740,7 @@ fun NodeContent(
             onDismiss = { sheetContextItem = null },
             onOpen = {
                 sheetContextItem = null
+                pendingRestoreSheet = true
                 showMaterialsSheet = false
                 onItemClick(ctxItem)
             },
@@ -759,6 +749,65 @@ fun NodeContent(
                 onDeleteNode(ctxItem)
             }
         )
+    }
+
+    // ==== Подтверждение массового удаления ====
+    if (showDeleteSelectedConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedConfirm = false },
+            title = { Text("Удалить ${selectedIds.size} шт?") },
+            text = {
+                Text("Все выбранные вещи будут удалены без возможности восстановления.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val ids = selectedIds.toSet()
+                        showDeleteSelectedConfirm = false
+                        selectionMode = false
+                        selectedIds.clear()
+                        onDeleteNodes(ids)
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Удалить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelectedConfirm = false }) { Text("Отмена") }
+            }
+        )
+    }
+
+    // ==== Экран перемещения ====
+    if (moveMode && moveIds.isNotEmpty()) {
+        var rootForPicker by remember { mutableStateOf<StorageNode?>(null) }
+
+        LaunchedEffect(moveMode) {
+            var cur: StorageNode? = node
+            while (cur?.parentId != null) {
+                cur = onLoadParent(cur.parentId!!)
+            }
+            rootForPicker = cur
+        }
+
+        val root = rootForPicker
+
+        if (root != null) {
+            MovePickerScreen(
+                rootNode = root,
+                loadChildren = { parentId -> onLoadChildren(parentId) },
+                onConfirm = { targetParentId ->
+                    onMoveNodes(moveIds, targetParentId)
+                    moveMode = false
+                    moveIds = emptySet()
+                },
+                onCancel = {
+                    moveMode = false
+                    moveIds = emptySet()
+                }
+            )
+        }
     }
 
     // ==== Диалог темы ====
@@ -1055,6 +1104,7 @@ private fun markerColor(type: NodeType): Color = when (type) {
 @Composable
 private fun AddItemDialog(
     existingCategories: List<String>,
+    onAddCategoryToDb: (String) -> Unit = {},
     onDismiss: () -> Unit,
     onConfirm: (name: String, quantity: Float, unit: String, note: String?,
                 category: String?, photoPath: String?) -> Unit
@@ -1255,6 +1305,7 @@ private fun AddItemDialog(
                 TextButton(onClick = {
                     val v = newCategory.trim()
                     if (v.isNotBlank()) category = v
+                    onAddCategoryToDb(v)
                     showNewCategoryDialog = false
                 }, enabled = newCategory.isNotBlank()) { Text("Добавить") }
             },

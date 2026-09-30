@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-
+import com.example.masterka.data.Category
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -121,4 +121,49 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             _children.value = dao.getChildrenOnce(parent.id)
         }
     }
+
+    // ==== Мультивыбор (Шаг 2) ====
+    fun deleteItems(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        val parent = _rootNode.value ?: return
+        viewModelScope.launch {
+            ids.forEach { id -> dao.deleteById(id) }
+            _children.value = dao.getChildrenOnce(parent.id)
+        }
+    }
+
+    fun moveItems(ids: Set<Long>, newParentId: Long) {
+        if (ids.isEmpty()) return
+        val parent = _rootNode.value ?: return
+        viewModelScope.launch {
+            ids.forEach { id ->
+                dao.getById(id)?.let { item ->
+                    dao.update(item.copy(parentId = newParentId))
+                }
+            }
+            _children.value = dao.getChildrenOnce(parent.id)
+        }
+    }
+
+    fun addCategory(name: String, iconName: String = "Category") {
+        viewModelScope.launch {
+            val clean = name.trim()
+            if (clean.isBlank()) return@launch
+            val existing = categoryDao.getByName(clean)
+            if (existing == null) {
+                categoryDao.insert(
+                    Category(
+                        name = clean,
+                        iconName = iconName
+                    )
+                )
+            }
+        }
+    }
+
+    suspend fun loadChildrenOnce(parentId: Long): List<StorageNode> =
+        dao.getChildrenOnce(parentId)
+
+    suspend fun loadParentOnce(nodeId: Long): StorageNode? =
+        dao.getById(nodeId)
 }

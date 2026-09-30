@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.masterka.data.StorageNode
 import com.example.masterka.ui.common.PhotoSourceDialog
 import com.example.masterka.ui.common.copyPhotoToInternal
 import com.example.masterka.ui.common.createTempCameraFile
@@ -46,13 +47,14 @@ import java.io.File
 fun ItemScreen(
     itemId: Long,
     onBack: () -> Unit,
+    onNavigateToNode: (Long) -> Unit,
     vm: ItemViewModel = viewModel()
 ) {
     val context = LocalContext.current
     LaunchedEffect(itemId) { vm.loadItem(itemId) }
 
     val item by vm.item.collectAsState()
-    val path by vm.path.collectAsState()
+    val pathNodes by vm.pathNodes.collectAsState()
 
     var editMode by remember { mutableStateOf(false) }
     var editName by remember { mutableStateOf("") }
@@ -135,17 +137,7 @@ fun ItemScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(current.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (path.isNotBlank()) {
-                            Text(
-                                path,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
+                    Text(current.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 navigationIcon = {
                     IconButton(onClick = {
@@ -255,6 +247,14 @@ fun ItemScreen(
                     lentAt = current.lentAt,
                     returnBy = current.returnBy,
                     onReturnClick = { vm.returnItem() }
+                )
+            }
+
+            // ==== Где лежит ====
+            if (!editMode && pathNodes.isNotEmpty()) {
+                LocationCard(
+                    nodes = pathNodes,
+                    onNodeClick = onNavigateToNode
                 )
             }
 
@@ -526,6 +526,59 @@ private fun InfoRow(label: String, value: String) {
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LocationCard(
+    nodes: List<StorageNode>,
+    onNodeClick: (Long) -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "📍 Где лежит",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                nodes.forEachIndexed { index, node ->
+                    AssistChip(
+                        onClick = { onNodeClick(node.id) },
+                        label = {
+                            Text(
+                                node.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    )
+                    if (index < nodes.lastIndex) {
+                        Text(
+                            "→",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 2.dp)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

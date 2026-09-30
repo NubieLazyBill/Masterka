@@ -46,6 +46,7 @@ fun HomeScreen(
                 allCategories = allCategories,
                 currentTheme = currentTheme,
                 onThemeChange = onThemeChange,
+                onLoadChildren = { parentId -> vm.loadChildrenOnce(parentId) },
                 onDeveloperModeChange = onDeveloperModeChange,
                 onAddPhoto = { path -> vm.addPhoto(path) },
                 onRemovePhoto = { index -> vm.removePhotoAt(index) },
@@ -54,6 +55,8 @@ fun HomeScreen(
                 },
                 onUpdatePolygon = { id, points -> vm.updatePolygon(id, points) },
                 onDeleteNode = { node -> vm.deleteNode(node) },
+                onDeleteNodes = { ids -> vm.deleteItems(ids) },                  // ← НОВОЕ
+                onMoveNodes = { ids, parentId -> vm.moveItems(ids, parentId) },  // ← НОВОЕ
                 onChildClick = onChildClick,
                 onItemClick = onItemClick,
                 showMaterialsButton = true,
@@ -63,6 +66,7 @@ fun HomeScreen(
                 onBackupClick = onBackupClick,
                 onCategoriesClick = onCategoriesClick,
                 categoriesMap = categoriesMap,
+                onLoadParent = { id -> vm.loadParentOnce(id) },   // ← НОВОЕ
             )
         }
     }

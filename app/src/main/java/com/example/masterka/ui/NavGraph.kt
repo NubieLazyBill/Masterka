@@ -100,6 +100,12 @@ fun MasterkaNavGraph() {
                 },
                 onItemClick = { item ->
                     navController.navigate(Routes.item(item.id))
+                },
+                onCategoriesClick = {
+                    navController.navigate(Routes.CATEGORIES)          // ← НОВОЕ
+                },
+                onBackupClick = {
+                    navController.navigate(Routes.BACKUP)              // ← НОВОЕ
                 }
             )
         }
@@ -108,6 +114,9 @@ fun MasterkaNavGraph() {
         composable(Routes.MATERIALS) {
             MaterialsScreen(
                 onBack = { navController.popBackStack() },
+                onItemClick = { item ->
+                    navController.navigate(Routes.item(item.id))
+                },
                 onLocationClick = { item ->
                     val parentId = item.parentId
                     if (parentId != null) {
@@ -125,7 +134,10 @@ fun MasterkaNavGraph() {
             val itemId = backStack.arguments?.getLong("itemId") ?: return@composable
             ItemScreen(
                 itemId = itemId,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onNavigateToNode = { nodeId ->
+                    navController.navigate(Routes.node(nodeId))
+                }
             )
         }
 

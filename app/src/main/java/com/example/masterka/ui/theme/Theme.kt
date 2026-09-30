@@ -176,6 +176,7 @@ fun MasterkaTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
+        typography = MasterkaTypography,
         content = content
     )
 }
