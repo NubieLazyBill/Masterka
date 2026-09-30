@@ -39,5 +39,8 @@ interface CategoryDao {
     @Query("SELECT * FROM categories ORDER BY name COLLATE NOCASE")
     suspend fun getAllCategoriesOnce(): List<Category>
 
+    @Query("SELECT name FROM categories ORDER BY name COLLATE NOCASE")
+    fun getAllCategoryNames(): Flow<List<String>>
+
 
 }

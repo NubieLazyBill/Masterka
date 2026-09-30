@@ -4,23 +4,26 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.masterka.MasterkaApp
+import com.example.masterka.data.Category
 import com.example.masterka.data.NodeType
 import com.example.masterka.data.NormalizedPoint
 import com.example.masterka.data.PolygonCodec
 import com.example.masterka.data.StorageNode
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import com.example.masterka.data.PhotoPathsCodec
 import com.example.masterka.data.allPhotoPaths
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 class NodeViewModel(app: Application) : AndroidViewModel(app) {
 
     private val dao = (app as MasterkaApp).dao
+    private val categoryDao = (app as MasterkaApp).categoryDao
 
     private val _currentNode = MutableStateFlow<StorageNode?>(null)
     val currentNode = _currentNode.asStateFlow()
@@ -31,10 +34,12 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
     private val _breadcrumbs = MutableStateFlow<List<StorageNode>>(emptyList())
     val breadcrumbs = _breadcrumbs.asStateFlow()
 
-    val allCategories = dao.getAllCategories()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    private val categoryDao = (app as MasterkaApp).categoryDao
+    val allCategories: StateFlow<List<String>> = combine(
+        categoryDao.getAllCategoryNames(),
+        dao.getAllCategories()
+    ) { fromDb, fromNodes ->
+        (fromDb + fromNodes).filter { it.isNotBlank() }.distinct().sorted()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val categoriesMap: StateFlow<Map<String, String>> = categoryDao.getAllCategories()
         .map { list -> list.associate { it.name to it.iconName } }
@@ -66,7 +71,6 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
             val current = node.allPhotoPaths().toMutableList()
             if (index !in current.indices) return@launch
             current.removeAt(index)
-            // Удаляем всех детей, привязанных к этому фото (кроме ITEM — они не привязаны)
             dao.deleteChildrenAtPhoto(node.id, index)
             val updated = node.copy(photoPathsJson = PhotoPathsCodec.encode(current))
             dao.update(updated)
@@ -87,6 +91,7 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
             dao.insert(
                 StorageNode(
                     parentId = parent.id,
+                    spaceId = parent.spaceId,          // ← НОВОЕ
                     name = name.trim(),
                     type = NodeType.CONTAINER,
                     x = cx,
@@ -111,6 +116,7 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
             dao.insert(
                 StorageNode(
                     parentId = parent.id,
+                    spaceId = parent.spaceId,          // ← НОВОЕ
                     name = name.trim(),
                     type = type,
                     x = x,
@@ -130,10 +136,6 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /**
-     * Массовое удаление вещей по id.
-     * После — обновляем список детей текущего узла.
-     */
     fun deleteItems(ids: Set<Long>) {
         if (ids.isEmpty()) return
         val parent = _currentNode.value ?: return
@@ -147,9 +149,10 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
         if (ids.isEmpty()) return
         val parent = _currentNode.value ?: return
         viewModelScope.launch {
+            val newParentSpace = dao.getById(newParentId)?.spaceId
             ids.forEach { id ->
                 dao.getById(id)?.let { item ->
-                    dao.update(item.copy(parentId = newParentId))
+                    dao.update(item.copy(parentId = newParentId, spaceId = newParentSpace ?: item.spaceId))
                 }
             }
             _children.value = dao.getChildrenOnce(parent.id)
@@ -169,22 +172,21 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
     fun addChildWithPolygon(
         name: String,
         type: NodeType,
-        points: List<com.example.masterka.data.NormalizedPoint>
+        points: List<NormalizedPoint>
     ) {
         val parent = _currentNode.value ?: return
         viewModelScope.launch {
-            // Центр полигона — как x,y (для совместимости и для случаев без фото)
             val cx = points.map { it.x }.average().toFloat()
             val cy = points.map { it.y }.average().toFloat()
-
             dao.insert(
                 StorageNode(
                     parentId = parent.id,
+                    spaceId = parent.spaceId,          // ← НОВОЕ
                     name = name.trim(),
                     type = type,
                     x = cx,
                     y = cy,
-                    polygonJson = com.example.masterka.data.PolygonCodec.encode(points)
+                    polygonJson = PolygonCodec.encode(points)
                 )
             )
             _children.value = dao.getChildrenOnce(parent.id)
@@ -210,6 +212,7 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
             dao.insert(
                 StorageNode(
                     parentId = parent.id,
+                    spaceId = parent.spaceId,          // ← НОВОЕ
                     name = name.trim(),
                     type = NodeType.ITEM,
                     x = 0f,
@@ -242,6 +245,7 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
                 category = newCategory?.trim()?.ifBlank { null },
                 photoPath = newPhotoPath
             )
+            ensureCategoriesInDb(listOf(newCategory))
             _children.value = dao.getChildrenOnce(node.parentId ?: return@launch)
         }
     }
@@ -263,9 +267,10 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         val parent = _currentNode.value ?: return
         viewModelScope.launch {
-            val id = dao.insert(
+            dao.insert(
                 StorageNode(
                     parentId = parent.id,
+                    spaceId = parent.spaceId,          // ← НОВОЕ
                     name = name.trim(),
                     type = NodeType.ITEM,
                     x = 0f,
@@ -277,6 +282,7 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
                     photoPath = photoPath
                 )
             )
+            ensureCategoriesInDb(listOf(category))
             _children.value = dao.getChildrenOnce(parent.id)
         }
     }
@@ -285,15 +291,24 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val clean = name.trim()
             if (clean.isBlank()) return@launch
-            // Проверяем, нет ли уже такой
             val existing = categoryDao.getByName(clean)
             if (existing == null) {
-                categoryDao.insert(
-                    com.example.masterka.data.Category(
-                        name = clean,
-                        iconName = iconName
-                    )
-                )
+                categoryDao.insert(Category(name = clean, iconName = iconName))
+            }
+        }
+    }
+
+    private suspend fun ensureCategoriesInDb(categories: List<String?>) {
+        val clean = categories
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (clean.isEmpty()) return
+
+        val existing = categoryDao.getAllCategoriesOnce().map { it.name }.toSet()
+        clean.forEach { name ->
+            if (name !in existing) {
+                categoryDao.insert(Category(name = name, iconName = "Category"))
             }
         }
     }
@@ -303,5 +318,4 @@ class NodeViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun loadParentOnce(nodeId: Long): StorageNode? =
         dao.getById(nodeId)
-
 }

@@ -20,6 +20,7 @@ import com.example.masterka.ui.home.HomeScreen
 import com.example.masterka.ui.item.ItemScreen
 import com.example.masterka.ui.materials.MaterialsScreen
 import com.example.masterka.ui.node.NodeScreen
+import com.example.masterka.ui.spaces.SpacesScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -30,6 +31,7 @@ object Routes {
     const val MATERIALS = "materials"
     const val ITEM = "item/{itemId}"
     const val BACKUP = "backup"
+    const val SPACES = "spaces"
     const val CATEGORIES = "categories"
     fun node(id: Long) = "node/$id"
     fun item(id: Long) = "item/$id"
@@ -78,6 +80,9 @@ fun MasterkaNavGraph() {
                 },
                 onCategoriesClick = {
                     navController.navigate(Routes.CATEGORIES)
+                },
+                onSpacesClick = {                                // ← НОВОЕ
+                    navController.navigate(Routes.SPACES)
                 }
             )
         }
@@ -102,10 +107,10 @@ fun MasterkaNavGraph() {
                     navController.navigate(Routes.item(item.id))
                 },
                 onCategoriesClick = {
-                    navController.navigate(Routes.CATEGORIES)          // ← НОВОЕ
+                    navController.navigate(Routes.CATEGORIES)
                 },
                 onBackupClick = {
-                    navController.navigate(Routes.BACKUP)              // ← НОВОЕ
+                    navController.navigate(Routes.BACKUP)
                 }
             )
         }
@@ -149,6 +154,11 @@ fun MasterkaNavGraph() {
         // ==== ЭКРАН КАТЕГОРИЙ ====
         composable(Routes.CATEGORIES) {
             CategoriesScreen(onBack = { navController.popBackStack() })
+        }
+
+        // ==== ЭКРАН ПОМЕЩЕНИЙ ====
+        composable(Routes.SPACES) {
+            SpacesScreen(onBack = { navController.popBackStack() })
         }
     }
 }

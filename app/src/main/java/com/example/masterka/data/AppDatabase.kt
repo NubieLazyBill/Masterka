@@ -8,13 +8,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [StorageNode::class, Category::class],
-    version = 9,
+    entities = [StorageNode::class, Category::class, Space::class],
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun storageDao(): StorageDao
     abstract fun categoryDao(): CategoryDao
+    abstract fun spaceDao(): SpaceDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -96,6 +97,53 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // ==== МИГРАЦИЯ 9 → 10: пространства ====
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Создаём таблицу spaces
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `spaces` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `iconName` TEXT NOT NULL DEFAULT 'Warehouse',
+                        `createdAt` INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
+                // 2. Добавляем spaceId в nodes
+                db.execSQL("ALTER TABLE nodes ADD COLUMN spaceId INTEGER")
+
+                // 3. Создаём пространство по умолчанию «Мастерская», если его ещё нет
+                db.execSQL("""
+                    INSERT INTO spaces (name, iconName, createdAt)
+                    SELECT 'Мастерская', 'Warehouse', strftime('%s','now') * 1000
+                    WHERE NOT EXISTS (SELECT 1 FROM spaces)
+                """.trimIndent())
+
+                // 4. Привязываем все корневые узлы (parentId IS NULL) к этому пространству
+                db.execSQL("""
+                    UPDATE nodes
+                    SET spaceId = (SELECT id FROM spaces ORDER BY id LIMIT 1)
+                    WHERE parentId IS NULL
+                """.trimIndent())
+
+                // 5. Проставляем spaceId у всех потомков — пробегаем по дереву рекурсивно.
+                //    SQLite не умеет WITH RECURSIVE на старых версиях, но у тебя minSdk 26 — умеет.
+                db.execSQL("""
+                    WITH RECURSIVE tree(id, spaceId) AS (
+                        SELECT id, spaceId FROM nodes WHERE parentId IS NULL
+                        UNION ALL
+                        SELECT n.id, t.spaceId
+                        FROM nodes n
+                        JOIN tree t ON n.parentId = t.id
+                    )
+                    UPDATE nodes
+                    SET spaceId = (SELECT spaceId FROM tree WHERE tree.id = nodes.id)
+                    WHERE spaceId IS NULL
+                """.trimIndent())
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -111,7 +159,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
-                        MIGRATION_8_9
+                        MIGRATION_8_9,
+                        MIGRATION_9_10
                     )
                     .build()
                     .also { INSTANCE = it }

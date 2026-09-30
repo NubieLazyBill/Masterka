@@ -114,4 +114,21 @@ interface StorageDao {
 
     @Query("SELECT DISTINCT category FROM nodes WHERE category IS NOT NULL AND category != ''")
     suspend fun getAllCategoriesOnce(): List<String>
+
+    // ==== Пространства ====
+
+    @Query("SELECT * FROM nodes WHERE parentId IS NULL AND spaceId = :spaceId ORDER BY createdAt")
+    suspend fun getRootsBySpaceOnce(spaceId: Long): List<StorageNode>
+
+    @Query("SELECT * FROM nodes WHERE parentId IS NULL AND spaceId = :spaceId ORDER BY createdAt LIMIT 1")
+    fun getRootBySpace(spaceId: Long): Flow<StorageNode?>
+
+    @Query("SELECT * FROM nodes WHERE type = 'ITEM' AND spaceId = :spaceId ORDER BY name")
+    fun getAllItemsBySpace(spaceId: Long): Flow<List<StorageNode>>
+
+    @Query("SELECT * FROM nodes WHERE type = 'ITEM' AND spaceId = :spaceId ORDER BY name")
+    suspend fun getAllItemsBySpaceOnce(spaceId: Long): List<StorageNode>
+
+    @Query("DELETE FROM nodes WHERE spaceId = :spaceId")
+    suspend fun deleteAllNodesInSpace(spaceId: Long)
 }

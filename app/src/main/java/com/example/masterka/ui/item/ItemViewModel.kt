@@ -4,19 +4,31 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.masterka.MasterkaApp
+import com.example.masterka.data.Category
 import com.example.masterka.data.StorageNode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class ItemViewModel(app: Application) : AndroidViewModel(app) {
 
     private val dao = (app as MasterkaApp).dao
+    private val categoryDao = (app as MasterkaApp).categoryDao
 
-    val allCategories = dao.getAllCategories()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    // Объединение: справочник + категории из вещей.
+    val allCategories: StateFlow<List<String>> = combine(
+        categoryDao.getAllCategoryNames(),
+        dao.getAllCategories()
+    ) { fromDb, fromNodes ->
+        (fromDb + fromNodes)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _item = MutableStateFlow<StorageNode?>(null)
     val item = _item.asStateFlow()
@@ -61,6 +73,8 @@ class ItemViewModel(app: Application) : AndroidViewModel(app) {
                 category = category.trim().ifBlank { null },
                 photoPath = current.photoPath
             )
+
+            ensureCategoryInDb(category)
 
             if (noteChanged) {
                 dao.updateNoteWithTimestamp(
@@ -123,7 +137,6 @@ class ItemViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Строит цепочку предков (от корня к родителю), БЕЗ самой вещи.
-     * Для вещи возвращает [Мастерская, Шкаф, Полка 1].
      */
     private suspend fun buildPathNodes(node: StorageNode): List<StorageNode> {
         val path = mutableListOf<StorageNode>()
@@ -133,5 +146,18 @@ class ItemViewModel(app: Application) : AndroidViewModel(app) {
             current = current.parentId?.let { dao.getById(it) }
         }
         return path
+    }
+
+    /**
+     * Гарантирует, что категория есть в таблице `categories`.
+     */
+    private suspend fun ensureCategoryInDb(name: String?) {
+        val clean = name?.trim()?.takeIf { it.isNotBlank() } ?: return
+        val existing = categoryDao.getByName(clean)
+        if (existing == null) {
+            categoryDao.insert(
+                Category(name = clean, iconName = "Category")
+            )
+        }
     }
 }

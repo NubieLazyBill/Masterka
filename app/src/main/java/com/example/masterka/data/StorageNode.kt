@@ -26,6 +26,7 @@ enum class NodeType {
 data class StorageNode(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val parentId: Long? = null,
+    val spaceId: Long? = null,
     val name: String,
     val type: NodeType,
     val photoPath: String? = null,

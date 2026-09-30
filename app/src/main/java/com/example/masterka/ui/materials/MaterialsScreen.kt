@@ -108,6 +108,27 @@ fun MaterialsScreen(
                 singleLine = true
             )
 
+            // ==== Тумблер «Всё / Это помещение» ====
+            val onlyActive by vm.onlyActiveSpace.collectAsState()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                FilterChip(
+                    selected = !onlyActive,
+                    onClick = { vm.setOnlyActiveSpace(false) },
+                    label = { Text("Всё") }
+                )
+                FilterChip(
+                    selected = onlyActive,
+                    onClick = { vm.setOnlyActiveSpace(true) },
+                    label = { Text("Это помещение") }
+                )
+            }
+
             // ==== Чипсы категорий ====
             val allCategories = remember(rowsAll) {
                 rowsAll.mapNotNull { it.item.category }

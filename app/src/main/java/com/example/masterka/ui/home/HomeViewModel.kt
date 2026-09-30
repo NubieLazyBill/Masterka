@@ -4,34 +4,50 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.masterka.MasterkaApp
+import com.example.masterka.data.Category
 import com.example.masterka.data.NodeType
 import com.example.masterka.data.NormalizedPoint
 import com.example.masterka.data.PhotoPathsCodec
 import com.example.masterka.data.PolygonCodec
+import com.example.masterka.data.SpacePreferences
 import com.example.masterka.data.StorageNode
 import com.example.masterka.data.allPhotoPaths
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import com.example.masterka.data.Category
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     private val dao = (app as MasterkaApp).dao
     private val categoryDao = (app as MasterkaApp).categoryDao
+    private val spaceDao = (app as MasterkaApp).spaceDao
 
+    // ==== Активное помещение ====
+    private val _activeSpaceId = MutableStateFlow(0L)
+    val activeSpaceId: StateFlow<Long> = _activeSpaceId.asStateFlow()
+
+    val spaces = spaceDao.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ==== Корневая зона активного пространства ====
     private val _rootNode = MutableStateFlow<StorageNode?>(null)
     val rootNode = _rootNode.asStateFlow()
 
     private val _children = MutableStateFlow<List<StorageNode>>(emptyList())
     val children = _children.asStateFlow()
 
-    val allCategories = dao.getAllCategories()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val allCategories: StateFlow<List<String>> = combine(
+        categoryDao.getAllCategoryNames(),
+        dao.getAllCategories()
+    ) { fromDb, fromNodes ->
+        (fromDb + fromNodes).filter { it.isNotBlank() }.distinct().sorted()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val categoriesMap: StateFlow<Map<String, String>> = categoryDao.getAllCategories()
         .map { list -> list.associate { it.name to it.iconName } }
@@ -39,11 +55,27 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            var root = dao.getRootNode()
+            // 1. Загружаем активное пространство из DataStore.
+            //    Если 0 — берём первое из БД. Если и в БД пусто — создаём «Мастерскую».
+            var spaceId = SpacePreferences.getActiveSpaceIdOnce(getApplication())
+            if (spaceId == 0L) {
+                val all = spaceDao.getAllOnce()
+                spaceId = if (all.isEmpty()) {
+                    spaceDao.insert(com.example.masterka.data.Space(name = "Мастерская"))
+                } else {
+                    all.first().id
+                }
+                SpacePreferences.setActiveSpaceId(getApplication(), spaceId)
+            }
+            _activeSpaceId.value = spaceId
+
+            // 2. Ищем или создаём корневую зону этого пространства.
+            var root = dao.getRootBySpace(spaceId).first()
             if (root == null) {
                 val id = dao.insert(
                     StorageNode(
                         parentId = null,
+                        spaceId = spaceId,
                         name = "Мастерская",
                         type = NodeType.ZONE
                     )
@@ -54,8 +86,44 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             if (root != null) {
                 _children.value = dao.getChildrenOnce(root.id)
             }
+
+            // 3. Разовая синхронизация категорий из вещей
+            val existing = categoryDao.getAllCategoriesOnce().map { it.name }.toSet()
+            dao.getAllCategoriesOnce()
+                .filter { it.isNotBlank() && it !in existing }
+                .forEach { name ->
+                    categoryDao.insert(Category(name = name, iconName = "Category"))
+                }
         }
     }
+
+    /**
+     * Переключить активное помещение.
+     * Сохраняем в DataStore, перезагружаем корень и детей.
+     */
+    fun switchSpace(spaceId: Long) {
+        viewModelScope.launch {
+            SpacePreferences.setActiveSpaceId(getApplication(), spaceId)
+            _activeSpaceId.value = spaceId
+
+            var root = dao.getRootBySpace(spaceId).first()
+            if (root == null) {
+                val id = dao.insert(
+                    StorageNode(
+                        parentId = null,
+                        spaceId = spaceId,
+                        name = "Мастерская",
+                        type = NodeType.ZONE
+                    )
+                )
+                root = dao.getById(id)
+            }
+            _rootNode.value = root
+            _children.value = root?.let { dao.getChildrenOnce(it.id) } ?: emptyList()
+        }
+    }
+
+    // ==== Корневые действия (фото, контейнеры) ====
 
     fun addPhoto(path: String) {
         val node = _rootNode.value ?: return
@@ -94,6 +162,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             dao.insert(
                 StorageNode(
                     parentId = parent.id,
+                    spaceId = parent.spaceId,           // ← НОВОЕ
                     name = name.trim(),
                     type = NodeType.CONTAINER,
                     x = cx,
@@ -122,7 +191,6 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ==== Мультивыбор (Шаг 2) ====
     fun deleteItems(ids: Set<Long>) {
         if (ids.isEmpty()) return
         val parent = _rootNode.value ?: return
@@ -136,9 +204,11 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         if (ids.isEmpty()) return
         val parent = _rootNode.value ?: return
         viewModelScope.launch {
+            // newParent — узнаём его spaceId, чтобы проставить и перемещаемым вещам
+            val newParentSpace = dao.getById(newParentId)?.spaceId
             ids.forEach { id ->
                 dao.getById(id)?.let { item ->
-                    dao.update(item.copy(parentId = newParentId))
+                    dao.update(item.copy(parentId = newParentId, spaceId = newParentSpace ?: item.spaceId))
                 }
             }
             _children.value = dao.getChildrenOnce(parent.id)
@@ -151,12 +221,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             if (clean.isBlank()) return@launch
             val existing = categoryDao.getByName(clean)
             if (existing == null) {
-                categoryDao.insert(
-                    Category(
-                        name = clean,
-                        iconName = iconName
-                    )
-                )
+                categoryDao.insert(Category(name = clean, iconName = iconName))
             }
         }
     }

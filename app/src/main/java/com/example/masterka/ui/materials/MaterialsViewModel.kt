@@ -4,22 +4,15 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.masterka.MasterkaApp
-import com.example.masterka.data.NodeType
+import com.example.masterka.data.SpacePreferences
 import com.example.masterka.data.StorageNode
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 
 enum class MaterialsSort {
-    NAME_ASC,
-    NAME_DESC,
-    QTY_ASC,
-    QTY_DESC,
-    LOCATION
+    NAME_ASC, NAME_DESC, QTY_ASC, QTY_DESC, LOCATION
 }
 
 data class MaterialRow(
@@ -31,36 +24,43 @@ data class MaterialRow(
 class MaterialsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val dao = (app as MasterkaApp).dao
+    private val categoryDao = (app as MasterkaApp).categoryDao
 
     private val _query = MutableStateFlow("")
-
-    private val categoryDao = (app as MasterkaApp).categoryDao
     val query = _query.asStateFlow()
 
     private val _sort = MutableStateFlow(MaterialsSort.NAME_ASC)
     val sort = _sort.asStateFlow()
 
-    // Кэш путей: parentId -> путь
+    // ==== Активное помещение ====
+    private val _activeSpaceId = MutableStateFlow(0L)
+    val activeSpaceId = _activeSpaceId.asStateFlow()
+
+    // true = показывать только активное помещение, false = всё
+    private val _onlyActiveSpace = MutableStateFlow(true)
+    val onlyActiveSpace = _onlyActiveSpace.asStateFlow()
+
     private val _rows = MutableStateFlow<List<MaterialRow>>(emptyList())
     val rows = _rows.asStateFlow()
 
     init {
         viewModelScope.launch {
+            _activeSpaceId.value = SpacePreferences.getActiveSpaceIdOnce(getApplication())
+        }
+
+        viewModelScope.launch {
             val categoriesMap = mutableMapOf<String, String>()
 
-            // Подписка на изменения категорий
             launch {
                 categoryDao.getAllCategories().collect { categories ->
                     categoriesMap.clear()
                     categories.forEach { categoriesMap[it.name] = it.iconName }
-                    // Обогащаем уже загруженные rows
                     _rows.value = _rows.value.map { row ->
                         row.copy(categoryIcon = row.item.category?.let { categoriesMap[it] })
                     }
                 }
             }
 
-            // Подписка на вещи
             dao.getAllItems().collect { items ->
                 val withPath = items.map { item ->
                     MaterialRow(
@@ -76,22 +76,28 @@ class MaterialsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setQuery(q: String) { _query.value = q }
     fun setSort(s: MaterialsSort) { _sort.value = s }
+    fun setOnlyActiveSpace(value: Boolean) { _onlyActiveSpace.value = value }
 
     /**
-     * Готовый список — с учётом поиска и сортировки.
-     * Вызывается из UI через remember(query, sort, rows).
+     * Готовый список с учётом поиска, сортировки и фильтра по помещению.
      */
     fun filteredAndSorted(): List<MaterialRow> {
         val q = _query.value.trim().lowercase()
         val s = _sort.value
         val base = _rows.value
 
-        val filtered = if (q.isBlank()) base else base.filter {
-            it.item.name.lowercase().contains(q) ||
-                    (it.item.note?.lowercase()?.contains(q) == true) ||
-                    it.location.lowercase().contains(q) ||
-                    (it.item.category?.lowercase()?.contains(q) == true)   // ← добавь эту строку
-        }
+        // ==== Фильтр по помещению ====
+        val filtered = base
+            .filter { row ->
+                !_onlyActiveSpace.value || row.item.spaceId == _activeSpaceId.value
+            }
+            .filter { row ->
+                if (q.isBlank()) true
+                else row.item.name.lowercase().contains(q) ||
+                        (row.item.note?.lowercase()?.contains(q) == true) ||
+                        row.location.lowercase().contains(q) ||
+                        (row.item.category?.lowercase()?.contains(q) == true)
+            }
 
         return when (s) {
             MaterialsSort.NAME_ASC -> filtered.sortedBy { it.item.name.lowercase() }
@@ -102,10 +108,6 @@ class MaterialsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /**
-     * Собирает путь от корня до родителя вещи.
-     * Возвращает строку вида "Мастерская → Шкаф → Полка 1".
-     */
     private suspend fun buildPathFor(item: StorageNode): String {
         val parts = mutableListOf<String>()
         var current: StorageNode? = item.parentId?.let { dao.getById(it) }
